@@ -5,15 +5,18 @@ Run analyses in the pinned container built from `container/Dockerfile`. Mashpit 
 Pull the published image:
 
 ```bash
-docker pull --platform linux/amd64 ghcr.io/tongzhouxu/mashpit-isolate-screen-skill:latest
-docker tag ghcr.io/tongzhouxu/mashpit-isolate-screen-skill:latest mashpit-isolate-screen:local
+# The registry package is currently private; authorized GHCR login is required.
+docker pull --platform linux/amd64 ghcr.io/tongzhouxu/isoscout:latest
+docker tag ghcr.io/tongzhouxu/isoscout:latest isoscout:local
 ```
 
 or build it locally from the repository root:
 
 ```bash
-docker build --platform linux/amd64 --tag mashpit-isolate-screen:local --file container/Dockerfile .
+docker build --platform linux/amd64 --tag isoscout:local --file container/Dockerfile .
 ```
+
+Build check (2026-10-01): a clean dependency install currently fails with a conda dependency-resolution conflict. The local IsoScout image was built by retaining the existing image's installed dependencies and replacing its bundled project files; its entrypoint and all 36 unit tests passed. The renamed image was published to `ghcr.io/tongzhouxu/isoscout:latest` on 2026-10-01.
 
 `--platform linux/amd64` is required on Apple Silicon (`quast=5.3.0` has no `linux/arm64` build for the pinned Python 3.11); it runs fine under emulation there.
 
@@ -22,16 +25,16 @@ Run an assembly with a known organism:
 ```bash
 docker run --rm \
   --volume "/absolute/path/to/data:/data:ro" \
-  --volume "$HOME/.mashpit/databases:/databases:ro" \
+  --volume "$HOME/.isoscout/databases:/databases:ro" \
   --volume "/absolute/path/to/results:/results" \
-  mashpit-isolate-screen:local \
+  isoscout:local \
   /data/sample.fasta --organism salmonella \
   --database-root /databases --output /results/sample-screen
 ```
 
 Omit `--organism` to use local MLST routing. The output directory must not already exist.
 
-Set `MASHPIT_DATABASE_ROOT` or pass `--database-root`. The directory must contain:
+Set `ISOSCOUT_DATABASE_ROOT` or pass `--database-root`. The directory must contain:
 
 ```text
 databases/
@@ -45,11 +48,11 @@ databases/
 Pre-built, checksummed databases for all five are published at [Releases](../../../releases/tag/databases-v1) — download and verify before extracting:
 
 ```bash
-mkdir -p ~/.mashpit/databases && cd ~/.mashpit/databases
+mkdir -p ~/.isoscout/databases && cd ~/.isoscout/databases
 for org in salmonella ecoli_shigella listeria campylobacter cronobacter; do
-  curl -LO "https://github.com/tongzhouxu/mashpit-isolate-screen-skill/releases/download/databases-v1/${org}.tar.gz"
+  curl -LO "https://github.com/tongzhouxu/IsoScout/releases/download/databases-v1/${org}.tar.gz"
 done
-curl -LO https://github.com/tongzhouxu/mashpit-isolate-screen-skill/releases/download/databases-v1/checksums.sha256.txt
+curl -LO https://github.com/tongzhouxu/IsoScout/releases/download/databases-v1/checksums.sha256.txt
 shasum -a 256 -c checksums.sha256.txt
 for f in *.tar.gz; do tar -xzf "$f"; done
 ```

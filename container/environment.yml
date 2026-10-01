@@ -1,4 +1,4 @@
-name: mashpit-isolate-screen
+name: isoscout
 channels:
   - conda-forge
   - bioconda

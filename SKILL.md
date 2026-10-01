@@ -1,9 +1,9 @@
 ---
-name: mashpit-isolate-screen
+name: isoscout
 description: Reproducibly screen bacterial isolate assemblies or paired-end Illumina FASTQ/FASTQ.GZ reads with Mashpit. Use when Codex needs to validate isolate inputs, run fixed read QC and assembly, assess bacterial assembly quality, select a Salmonella, Escherichia coli/Shigella, Listeria, Campylobacter, or Cronobacter database from a user-provided organism or local MLST classification, run Mashpit, interpret structured candidate-cluster results, or explain conservative failure and setup states.
 ---
 
-# Mashpit isolate screening
+# IsoScout
 
 Use the bundled scripts for computation. Do not construct bioinformatics commands, select alternate tools, change thresholds, parse raw output mentally, or infer an organism from sequence text.
 

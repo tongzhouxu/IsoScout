@@ -1,8 +1,8 @@
 {
   "skill_version": "1.1.0",
   "workflow_version": "1.2.0",
-  "container_image": "ghcr.io/tongzhouxu/mashpit-isolate-screen-skill:latest",
-  "container_digest": "sha256:30b5874a1a1d7b77a50c40dda94df1d13618806f26c9e7539bf679272af403b8",
+  "container_image": "ghcr.io/tongzhouxu/isoscout:latest",
+  "container_digest": "sha256:0ee316333279d2fbb28ba78605aa25ae86b0cdf9321cac15dd78f2c349ad9cf9",
   "tools": {
     "fastp": "0.23.4",
     "skesa": "2.5.1",

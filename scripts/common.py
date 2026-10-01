@@ -100,7 +100,7 @@ def run_logged(command: list[str], cwd: Path, stdout_path: Path, stderr_path: Pa
 def effective_database_root(cli_value: str | None) -> Path:
     if cli_value:
         return Path(cli_value).expanduser().resolve()
-    environment_value = os.environ.get("MASHPIT_DATABASE_ROOT")
+    environment_value = os.environ.get("ISOSCOUT_DATABASE_ROOT")
     if environment_value:
         return Path(environment_value).expanduser().resolve()
-    return Path.home() / ".mashpit" / "databases"
+    return Path.home() / ".isoscout" / "databases"

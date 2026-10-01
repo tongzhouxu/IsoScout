@@ -1,4 +1,4 @@
 interface:
-  display_name: "Mashpit Isolate Screen"
+  display_name: "IsoScout"
   short_description: "Screen bacterial isolates reproducibly"
-  default_prompt: "Use $mashpit-isolate-screen to screen these bacterial reads or assembly with Mashpit."
+  default_prompt: "Use $isoscout to screen these bacterial reads or assembly with Mashpit."

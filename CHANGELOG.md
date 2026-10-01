@@ -4,6 +4,8 @@ All notable changes to this project are documented here. Format loosely follows 
 
 ## [Unreleased]
 
+- Renamed the project and GitHub repository to IsoScout, with skill identifier `isoscout`. Updated the container image, build paths, environment name, and report title. The default database directory is now `~/.isoscout/databases`, and the environment override is `ISOSCOUT_DATABASE_ROOT`; existing databases can still be selected with `--database-root`.
+
 - Added `LICENSE` (GPL v2, matching Mashpit's own license verbatim) — the repo had none before, which meant it was "all rights reserved" by default despite being public. `CITATION.cff` now declares `license: GPL-2.0-only` to match.
 - Validated the raw paired-end Illumina reads path end-to-end for the first time, against real data (a real Cronobacter SRA run, `SRR1614321`, not a database representative): fastp → SKESA → QUAST → Mashpit correctly recovered the isolate's true NCBI Pathogen Detection cluster (`PDS000112223.1`, score 0.986) from 102x real coverage. Every other verification in this project up to this point used pre-built assemblies; the reads path itself was previously only unit-tested with tiny synthetic/mocked data.
 - `report.md` now shows the read QC line (estimated coverage, Q30 fraction, read pairs) when the input was reads, and shows plain-language input-type labels ("raw paired-end Illumina reads" / "an existing genome assembly") instead of the raw internal enum value (`illumina_paired_fastq`) — both gaps found by that same real-data run.
@@ -38,7 +40,7 @@ Initial release.
 ### Distribution
 
 - Pre-built, checksummed Mashpit databases for all five organisms published on the [`databases-v1`](../../releases/tag/databases-v1) release.
-- Container image published to `ghcr.io/tongzhouxu/mashpit-isolate-screen-skill` via GitHub Actions on version tags (`linux/amd64` only — `quast=5.3.0` has no `linux/arm64` build for the pinned Python 3.11).
+- Container image published to `ghcr.io/tongzhouxu/isoscout` via GitHub Actions on version tags (`linux/amd64` only — `quast=5.3.0` has no `linux/arm64` build for the pinned Python 3.11).
 
 ### Verification
 

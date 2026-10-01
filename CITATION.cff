@@ -1,5 +1,5 @@
 cff-version: "1.2.0"
-title: "Mashpit Isolate Screen Skill"
+title: "IsoScout"
 message: >-
   If you use this software, please cite it as below. If you use it to query
   or build a Mashpit database, also cite Mashpit itself (see references).
@@ -8,7 +8,7 @@ authors:
 - family-names: Xu
   given-names: Tongzhou
   orcid: "https://orcid.org/0000-0002-3829-8688"
-repository-code: "https://github.com/tongzhouxu/mashpit-isolate-screen-skill"
+repository-code: "https://github.com/tongzhouxu/IsoScout"
 license: GPL-2.0-only
 version: "1.0.0"
 date-released: "2026-08-17"

@@ -1,8 +1,8 @@
-# Mashpit Isolate Screen Skill
+# IsoScout
 
 [![License: GPL v2](https://img.shields.io/badge/License-GPL_v2-blue.svg)](LICENSE)
 
-This screens a bacterial isolate (a genome you sequenced) against public outbreak-cluster data, to tell you which known cluster of related bacteria it's most similar to. You do not need to know how to code to use it — you need to install two ordinary applications, then just describe what you want in plain English to an AI coding assistant (Claude Code or Codex), and it does the rest. That's what this page walks you through first. If you're comfortable with the command line already, skip to [Manual setup](#manual-setup) below.
+IsoScout screens a bacterial isolate (a genome you sequenced) against public outbreak-cluster data, to tell you which known cluster of related bacteria it's most similar to. You do not need to know how to code to use it — you need to install two ordinary applications, then just describe what you want in plain English to an AI coding assistant (Claude Code or Codex), and it does the rest. That's what this page walks you through first. If you're comfortable with the command line already, skip to [Manual setup](#manual-setup) below.
 
 ## Quick start (no coding experience needed)
 
@@ -34,14 +34,14 @@ Either one works equally well with this skill. Once installed, open it (this usu
 Copy the box below, paste it into your chat with Claude Code or Codex, replace `[ORGANISM]` with whichever of `salmonella`, `ecoli_shigella`, `listeria`, `campylobacter`, or `cronobacter` matches your sample (if you're not sure, just pick `cronobacter` for a first try — its database is much smaller and faster to download), and send it:
 
 ```
-Please set up the mashpit-isolate-screen-skill for me:
+Please set up IsoScout for me:
 
-1. Clone https://github.com/tongzhouxu/mashpit-isolate-screen-skill
+1. Clone https://github.com/tongzhouxu/IsoScout
    into a folder on my computer.
 2. Read that repository's README.md and follow its "Manual setup"
    instructions to pull the published Docker image, and to download
    and checksum-verify the [ORGANISM] database from its GitHub
-   Release into ~/.mashpit/databases/.
+   Release into ~/.isoscout/databases/.
 
 Explain each step briefly as you go, and tell me clearly once
 everything is downloaded and ready.
@@ -54,7 +54,7 @@ It will likely pause partway through to ask your permission before running certa
 Once setup is done, copy this box, fill in the path to your genome file(s) and the organism, and send it:
 
 ```
-Please screen this genome using the mashpit-isolate-screen-skill you
+Please screen this genome using IsoScout, which you
 just set up: [PATH TO YOUR .fasta FILE, OR YOUR TWO .fastq.gz FILES]
 
 Organism: [ORGANISM]
@@ -87,29 +87,34 @@ For anyone who'd rather run the commands themselves instead of asking an assista
 
 You need two things: the container image, and a Mashpit database for at least one organism.
 
+The container image uses `ghcr.io/tongzhouxu/isoscout`; the examples tag it locally as `isoscout:local`.
+
 **1. Get the image** — either pull the pre-built one:
 
 ```bash
-docker pull --platform linux/amd64 ghcr.io/tongzhouxu/mashpit-isolate-screen-skill:latest
-docker tag ghcr.io/tongzhouxu/mashpit-isolate-screen-skill:latest mashpit-isolate-screen:local
+# The registry package is currently private; authorized GHCR login is required.
+docker pull --platform linux/amd64 ghcr.io/tongzhouxu/isoscout:latest
+docker tag ghcr.io/tongzhouxu/isoscout:latest isoscout:local
 ```
 
 or build it yourself:
 
 ```bash
-docker build --platform linux/amd64 --tag mashpit-isolate-screen:local --file container/Dockerfile .
+docker build --platform linux/amd64 --tag isoscout:local --file container/Dockerfile .
 ```
+
+Build check (2026-10-01): a clean dependency install currently fails with a conda dependency-resolution conflict. The local IsoScout image was built by retaining the existing image's installed dependencies and replacing its bundled project files; its entrypoint and all 36 unit tests passed. The renamed image was published to `ghcr.io/tongzhouxu/isoscout:latest` on 2026-10-01.
 
 `--platform linux/amd64` is required everywhere here, not just on Apple Silicon: the image is only published/buildable for `linux/amd64` because `quast=5.3.0` has no native `linux/arm64` build compatible with the pinned Python 3.11. It runs fine under emulation on Apple Silicon; omitting the flag there pulls/builds nothing since Docker defaults to your host's native architecture.
 
 **2. Get a database** — download the pre-built ones from [Releases](../../releases/tag/databases-v1):
 
 ```bash
-mkdir -p ~/.mashpit/databases && cd ~/.mashpit/databases
+mkdir -p ~/.isoscout/databases && cd ~/.isoscout/databases
 for org in salmonella ecoli_shigella listeria campylobacter cronobacter; do
-  curl -LO "https://github.com/tongzhouxu/mashpit-isolate-screen-skill/releases/download/databases-v1/${org}.tar.gz"
+  curl -LO "https://github.com/tongzhouxu/IsoScout/releases/download/databases-v1/${org}.tar.gz"
 done
-curl -LO https://github.com/tongzhouxu/mashpit-isolate-screen-skill/releases/download/databases-v1/checksums.sha256.txt
+curl -LO https://github.com/tongzhouxu/IsoScout/releases/download/databases-v1/checksums.sha256.txt
 shasum -a 256 -c checksums.sha256.txt   # verify before extracting
 for f in *.tar.gz; do tar -xzf "$f"; done
 ```
@@ -123,9 +128,9 @@ Database creation and updating are out of scope for this skill; see [mashpit](ht
 ```bash
 docker run --rm \
   --volume "/absolute/path/to/data:/data:ro" \
-  --volume "$HOME/.mashpit/databases:/databases:ro" \
+  --volume "$HOME/.isoscout/databases:/databases:ro" \
   --volume "/absolute/path/to/results:/results" \
-  mashpit-isolate-screen:local \
+  isoscout:local \
   /data/sample.fasta \
   --organism salmonella \
   --database-root /databases \
@@ -149,7 +154,7 @@ Three files land in the output directory:
 ## Test without biological tools or databases
 
 ```bash
-PYTHONPYCACHEPREFIX=/tmp/mashpit_pycache python3 -m unittest discover -s tests -v
+PYTHONPYCACHEPREFIX=/tmp/isoscout_pycache python3 -m unittest discover -s tests -v
 ```
 
 These unit tests mock external bioinformatics execution and don't need Docker, Mashpit, or a real database. A real end-to-end run additionally needs the container and at least one downloaded database, per Manual setup above.

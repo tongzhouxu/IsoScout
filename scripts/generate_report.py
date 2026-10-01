@@ -158,7 +158,7 @@ def _snp_section(result: dict[str, Any]) -> list[str]:
 
 def generate_report(result: dict[str, Any]) -> str:
     lines = [
-        f"# Isolate screening report: {result['sample']}",
+        f"# IsoScout screening report: {result['sample']}",
         "",
         f"**Overall status: {result['status']}**",
         "",
