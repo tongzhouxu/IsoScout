@@ -46,15 +46,15 @@ databases/
 └── cronobacter/
 ```
 
-Pre-built, checksummed baseline databases for all five are published at
-[databases-v1](https://github.com/tongzhouxu/IsoScout/releases/tag/databases-v1). This example downloads one
+Pre-built, checksummed databases for all five are published at
+[databases-v2](https://github.com/tongzhouxu/IsoScout/releases/tag/databases-v2). This example downloads one
 organism; set `org` to the database key you need:
 
 ```bash
 mkdir -p ~/.isoscout/databases && cd ~/.isoscout/databases
 org=salmonella
-curl -fLO "https://github.com/tongzhouxu/IsoScout/releases/download/databases-v1/${org}.tar.gz"
-curl -fLO https://github.com/tongzhouxu/IsoScout/releases/download/databases-v1/checksums.sha256.txt
+curl -fLO "https://github.com/tongzhouxu/IsoScout/releases/download/databases-v2/${org}.tar.gz"
+curl -fLO https://github.com/tongzhouxu/IsoScout/releases/download/databases-v2/checksums.sha256.txt
 grep "  ${org}.tar.gz$" checksums.sha256.txt | shasum -a 256 -c -
 tar -xzf "${org}.tar.gz"
 ```
@@ -79,12 +79,11 @@ builds, updates, or substitutes a database during a screen.
 
 ### Database packages with local cluster membership
 
-The `databases-v1` release predates member expansion. Its five packages can
-still screen isolates and can expand clusters while their exact NCBI releases
-remain available. On 2026-10-02, all five `databases-v2` archives were built
-and verified locally, then installed in the maintainer's default database
-directory; they are not yet a published GitHub release. Their exact NCBI
-versions are:
+The legacy [databases-v1](https://github.com/tongzhouxu/IsoScout/releases/tag/databases-v1)
+release predates member expansion. Its five packages can still screen isolates
+and can expand clusters while their exact NCBI releases remain available. On
+2026-10-02, all five `databases-v2` archives were built, verified, and
+published. Their exact NCBI versions are:
 
 | Organism | NCBI Pathogen Detection release |
 | --- | --- |

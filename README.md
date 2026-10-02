@@ -110,15 +110,15 @@ The published image is `linux/amd64` only: `quast=5.3.0` has no native
 `linux/arm64` build for the pinned Python 3.11. Use `--platform linux/amd64`
 on Apple Silicon to run it under emulation.
 
-**2. Get a database** — download one of the published baseline packages from
-[databases-v1](https://github.com/tongzhouxu/IsoScout/releases/tag/databases-v1). Set `org` to your sample's
+**2. Get a database** — download one of the published packages from
+[databases-v2](https://github.com/tongzhouxu/IsoScout/releases/tag/databases-v2). Set `org` to your sample's
 organism key:
 
 ```bash
 mkdir -p ~/.isoscout/databases && cd ~/.isoscout/databases
 org=salmonella
-curl -fLO "https://github.com/tongzhouxu/IsoScout/releases/download/databases-v1/${org}.tar.gz"
-curl -fLO https://github.com/tongzhouxu/IsoScout/releases/download/databases-v1/checksums.sha256.txt
+curl -fLO "https://github.com/tongzhouxu/IsoScout/releases/download/databases-v2/${org}.tar.gz"
+curl -fLO https://github.com/tongzhouxu/IsoScout/releases/download/databases-v2/checksums.sha256.txt
 grep "  ${org}.tar.gz$" checksums.sha256.txt | shasum -a 256 -c -
 tar -xzf "${org}.tar.gz"
 ```
@@ -152,10 +152,10 @@ Add `--snp-resolve` to also download the relevant representative genomes from NC
 
 Add `--snp-expand` to enable SNP refinement plus bounded exploration of additional members from the exact NCBI cluster release. Each round records why it expands or stops; stable sampling is not exhaustive search. For paired-read inputs, SKA2 uses cleaned reads directly, although Mashpit still needs the generated assembly. See [cluster expansion](references/cluster-expansion.md) and [verification/benchmarking](references/benchmarking.md). The implementation and comparability defaults require biological validation before strain-assignment claims.
 
-The published `databases-v1` packages do not include full cluster membership.
-All five `databases-v2` packages have been built and verified locally with the
+The legacy `databases-v1` packages do not include full cluster membership.
+All five [databases-v2](https://github.com/tongzhouxu/IsoScout/releases/tag/databases-v2) packages were built and verified with the
 [database package builder](references/setup.md#database-packages-with-local-cluster-membership),
-but `databases-v2` has not yet been published. They bundle exact-release metadata
+then published with archive checksums and a release manifest. They bundle exact-release metadata
 and cluster-membership tables so expansion can work after NCBI removes that
 release. Existing packages continue to use exact-release retrieval while it is
 available. Reference genome assemblies for SKA2 still require a separate download.

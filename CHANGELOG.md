@@ -6,7 +6,7 @@ All notable changes to this project are documented here. Format loosely follows 
 
 - Workflow 1.6.0 / skill 1.2.0 adds `package_database_release.py` to create new database bundles with exact-release metadata and cluster membership, verified against every representative and recorded with checksums. Expansion uses validated bundled tables offline, while existing `databases-v1` packages retain exact-release download support. Corrupt bundles fail closed.
 
-- Built and locally installed all five `databases-v2` packages with the exact NCBI Pathogen Detection membership and metadata tables (Salmonella `PDG000000002.3864`, E. coli/Shigella `PDG000000004.5775`, Listeria `PDG000000001.4519`, Campylobacter `PDG000000003.2682`, Cronobacter `PDG000000043.415`). Archive checksums, database integrity, and offline member discovery passed. The database release and updated container remain unpublished.
+- Built, verified, and published all five [`databases-v2`](https://github.com/tongzhouxu/IsoScout/releases/tag/databases-v2) packages with the exact NCBI Pathogen Detection membership and metadata tables (Salmonella `PDG000000002.3864`, E. coli/Shigella `PDG000000004.5775`, Listeria `PDG000000001.4519`, Campylobacter `PDG000000003.2682`, Cronobacter `PDG000000043.415`). Archive checksums, database integrity, and offline member discovery passed. The updated container remains unpublished.
 
 - Raised the refinement metadata download ceiling from 512 MiB to 1 GiB (policy 1.0.1): the published Salmonella release's available metadata TSV is 786,821,557 bytes and would otherwise be rejected. Confirmed exact-release metadata and membership URLs for all five published databases on 2026-10-02.
 

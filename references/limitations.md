@@ -18,8 +18,8 @@ Optional `--snp-resolve` (see [references/snp-resolution.md](snp-resolution.md))
 
 `--snp-expand` extends beyond representatives within plausible clusters, using exact-release membership and bounded rounds. Metadata gaps, absent assemblies, failed downloads, truncated searches, and unexamined members remain explicit. It cannot assign universal strain identity or establish that no closer unexamined isolate exists. Direct-read SKA2 refinement is supported, but the initial Mashpit screen still requires an assembly. See [benchmarking.md](benchmarking.md) for the limits of software verification versus biological validation.
 
-The published `databases-v1` packages do not bundle full membership tables;
-their expansion still depends on NCBI retaining the matching release. New
-packages built with `package_database_release.py` include checked copies of
+The legacy `databases-v1` packages do not bundle full membership tables;
+their expansion still depends on NCBI retaining the matching release. The
+published `databases-v2` packages include checked copies of
 those tables. This preserves cluster membership but not the downloaded genome
 assemblies used in each SNP run, which must also be kept for exact replay.
