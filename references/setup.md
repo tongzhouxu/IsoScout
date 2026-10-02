@@ -5,7 +5,7 @@ Run analyses in the pinned container built from `container/Dockerfile`. Mashpit 
 Pull the published image:
 
 ```bash
-# The registry package is currently private; authorized GHCR login is required.
+# The package is public; no GHCR login is needed to pull it.
 docker pull --platform linux/amd64 ghcr.io/tongzhouxu/isoscout:latest
 docker tag ghcr.io/tongzhouxu/isoscout:latest isoscout:local
 ```
