@@ -4,6 +4,20 @@ All notable changes to this project are documented here. Format loosely follows 
 
 ## [Unreleased]
 
+- Workflow 1.6.0 / skill 1.2.0 adds `package_database_release.py` to create new database bundles with exact-release metadata and cluster membership, verified against every representative and recorded with checksums. Expansion uses validated bundled tables offline, while existing `databases-v1` packages retain exact-release download support. Corrupt bundles fail closed.
+
+- Built and locally installed all five `databases-v2` packages with the exact NCBI Pathogen Detection membership and metadata tables (Salmonella `PDG000000002.3864`, E. coli/Shigella `PDG000000004.5775`, Listeria `PDG000000001.4519`, Campylobacter `PDG000000003.2682`, Cronobacter `PDG000000043.415`). Archive checksums, database integrity, and offline member discovery passed. The database release and updated container remain unpublished.
+
+- Raised the refinement metadata download ceiling from 512 MiB to 1 GiB (policy 1.0.1): the published Salmonella release's available metadata TSV is 786,821,557 bytes and would otherwise be rejected. Confirmed exact-release metadata and membership URLs for all five published databases on 2026-10-02.
+
+- Audited all 90 tests and consolidated four redundant cases into stronger existing checks, retaining their distinct assertions. Removed repeated assertions and unused test imports. All 86 remaining tests pass in the pinned-tool container; measured in-process production execution coverage is unchanged.
+
+- Workflow 1.5.0 adds opt-in exact-release cluster-member expansion and bounded refinement feedback with per-round audits, explicit incomplete coverage, and preservation of successful comparisons after later failures. Cleaned paired reads now feed SKA2 directly. Comparability gates exclude low-overlap rankings; tied minima remain ambiguous and zero SNPs no longer imply identity. Added finite-pool benchmarking and an offline real-SKA2 integration test using seeded random DNA. Biological validation remains required.
+
+- Workflow 1.4.0 enables adaptive SNP selection (policy 2.0.0): initial target 50, boundary near-tie expansion, alternative-cluster coverage, and hard ceiling 200. Deduplicates repeated accessions, records every decision, and exposes resource/retrieval limits and download losses. Diagnostics and actual refinement use the same selector. Added 13 adaptive-selection tests, including preview/download agreement. These defaults are not biologically validated.
+
+- Workflow 1.3.0 adds similarity-distribution diagnostics: ranked scores/gaps, sketch-tolerance counts, cluster composition, retrieval-limit warnings, and a preview of the existing SNP selector. Reports include a rank–similarity plot and JSON link. A standalone script can analyze prior Mashpit runs using their recorded query settings. Candidate selection is unchanged. Added 16 diagnostic and integration tests.
+
 - Renamed the project and GitHub repository to IsoScout, with skill identifier `isoscout`. Updated the container image, build paths, environment name, and report title. The default database directory is now `~/.isoscout/databases`, and the environment override is `ISOSCOUT_DATABASE_ROOT`; existing databases can still be selected with `--database-root`.
 
 - Added `LICENSE` (GPL v2, matching Mashpit's own license verbatim) — the repo had none before, which meant it was "all rights reserved" by default despite being public. `CITATION.cff` now declares `license: GPL-2.0-only` to match.
@@ -39,7 +53,7 @@ Initial release.
 
 ### Distribution
 
-- Pre-built, checksummed Mashpit databases for all five organisms published on the [`databases-v1`](../../releases/tag/databases-v1) release.
+- Pre-built, checksummed Mashpit databases for all five organisms published on the [`databases-v1`](https://github.com/tongzhouxu/IsoScout/releases/tag/databases-v1) release.
 - Container image published to `ghcr.io/tongzhouxu/isoscout` via GitHub Actions on version tags (`linux/amd64` only — `quast=5.3.0` has no `linux/arm64` build for the pinned Python 3.11).
 
 ### Verification

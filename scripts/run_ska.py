@@ -13,10 +13,12 @@ from __future__ import annotations
 
 import argparse
 import csv
+import math
+from itertools import combinations
 from pathlib import Path
 from typing import Any
 
-from common import WorkflowError, require_executable, run_logged, write_json
+from common import CONFIG_DIR, WorkflowError, load_json, require_executable, run_logged, write_json
 
 
 DISTANCE_HEADER = (
@@ -24,8 +26,18 @@ DISTANCE_HEADER = (
 )
 
 
-def build_file_list(genomes: dict[str, str], path: Path) -> None:
-    lines = [f"{sample_id}\t{fasta_path}" for sample_id, fasta_path in sorted(genomes.items())]
+def build_file_list(genomes: dict[str, str | list[str]], path: Path) -> None:
+    lines = []
+    for sample_id, value in sorted(genomes.items()):
+        paths = [value] if isinstance(value, str) else list(value)
+        if (not isinstance(value, str) and len(paths) != 2) or not paths:
+            raise WorkflowError("Read inputs must contain exactly two paired FASTQ paths.")
+        fields = [sample_id, *paths]
+        if any(not isinstance(field, str) or not field or any(c in field for c in "\t\r\n") for field in fields):
+            raise WorkflowError("SKA file-list fields must be nonempty strings without tabs/newlines.")
+        if isinstance(value, str) and value.lower().endswith((".fq", ".fastq", ".fq.gz", ".fastq.gz")):
+            raise WorkflowError("SKA FASTQ input requires an R1/R2 pair, not a single path.")
+        lines.append("\t".join(fields))
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
@@ -38,7 +50,7 @@ def parse_distance_table(path: Path) -> list[dict[str, Any]]:
         rows = []
         for parts in reader:
             if len(parts) != len(DISTANCE_HEADER):
-                continue
+                raise WorkflowError(f"Malformed ska distance row in {path}: {parts}")
             sample1, sample2, distance, mismatch_prop, match_count, mismatch_count = parts
             rows.append({
                 "sample1": sample1,
@@ -48,10 +60,18 @@ def parse_distance_table(path: Path) -> list[dict[str, Any]]:
                 "match_count": int(match_count),
                 "mismatch_count": int(mismatch_count),
             })
+    pairs = set()
+    for row in rows:
+        pair = tuple(sorted((row["sample1"], row["sample2"])))
+        if pair in pairs or pair[0] == pair[1]:
+            raise WorkflowError("Duplicate or self comparison in SKA distance table.")
+        if not math.isfinite(row["snp_distance"]) or row["snp_distance"] < 0 or not math.isfinite(row["mismatch_proportion"]) or not 0 <= row["mismatch_proportion"] <= 1 or row["match_count"] < 0 or row["mismatch_count"] < 0:
+            raise WorkflowError("Nonfinite or invalid values in SKA distance table.")
+        pairs.add(pair)
     return rows
 
 
-def run_ska(genomes: dict[str, str], output_dir: Path, kmer_size: int) -> dict[str, Any]:
+def run_ska(genomes: dict[str, str | list[str]], output_dir: Path, kmer_size: int) -> dict[str, Any]:
     if len(genomes) < 2:
         raise WorkflowError(
             "ska2 SNP resolution requires at least two genomes (query plus one representative)."
@@ -64,6 +84,9 @@ def run_ska(genomes: dict[str, str], output_dir: Path, kmer_size: int) -> dict[s
     build_command = [
         ska, "build", "-f", str(file_list), "-o", str(output_dir / "merged"), "-k", str(kmer_size),
     ]
+    if any(not isinstance(value, str) for value in genomes.values()):
+        filters = load_json(CONFIG_DIR / "workflow.json")["snp_resolution"]["read_filters"]
+        build_command.extend(["--min-count", str(filters["min_count"]), "--min-qual", str(filters["min_qual"]), "--qual-filter", filters["qual_filter"]])
     returncode = run_logged(
         build_command, output_dir, output_dir / "ska_build.stdout.log", output_dir / "ska_build.stderr.log"
     )
@@ -78,6 +101,9 @@ def run_ska(genomes: dict[str, str], output_dir: Path, kmer_size: int) -> dict[s
     if returncode != 0 or not distance_path.is_file():
         raise WorkflowError(f"ska distance failed; inspect {output_dir / 'ska_distance.stderr.log'}.")
     rows = parse_distance_table(distance_path)
+    observed = {tuple(sorted((row["sample1"], row["sample2"]))) for row in rows}
+    if observed != set(combinations(sorted(genomes), 2)):
+        raise WorkflowError("SKA distance matrix does not contain exactly the expected sample pairs.")
     result = {
         "status": "PASS",
         "commands": [build_command, distance_command],

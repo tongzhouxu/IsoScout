@@ -76,27 +76,94 @@ def _mashpit_section(result: dict[str, Any]) -> list[str]:
     return lines
 
 
+def _similarity_section(result: dict[str, Any]) -> list[str]:
+    diagnostics = result.get("similarity_distribution")
+    if not diagnostics:
+        return []
+    lines = ["### Candidate similarity distribution", ""]
+    if diagnostics["status"] == "ERROR":
+        return lines + [f"Diagnostics unavailable: {diagnostics['error']}", ""]
+    lines.append(
+        f"Returned **{diagnostics['returned_genomes']} unique representatives**; "
+        f"**{diagnostics['within_top_tolerance_count']}** are within Mashpit's sketch tolerance "
+        f"of the best score (tolerance {diagnostics['tolerance']['score_tolerance']:.6g}). "
+        "This describes the returned subset, not all isolates in the database."
+    )
+    lines.extend(["", "| Rank | Score | Gap to next | Cutoff splits a near-tie? |", "|---|---|---|---|"])
+    for point in diagnostics["rank_checkpoints"]:
+        score = f"{point['score']:.6f}" if point["score"] is not None else "Not returned"
+        gap = f"{point['gap_to_next']:.6g}" if point["gap_to_next"] is not None else "Unknown"
+        tied = "Unknown" if point["splits_near_tie"] is None else ("Yes" if point["splits_near_tie"] else "No")
+        lines.append(f"| {point['rank']} | {score} | {gap} | {tied} |")
+    preview = diagnostics["selection_preview"]
+    lines.append("")
+    if preview["eligible"]:
+        lines.append(
+            f"The current SNP selection policy would select **{preview['selected_genomes']}** unique genomes "
+            f"and omit **{preview['omitted_within_top_tolerance_count']}** returned genomes within tolerance "
+            "of the best score. This is a policy preview, not a count of downloaded or compared genomes."
+        )
+        audit = preview.get("audit", {})
+        if audit.get("policy", {}).get("strategy") == "adaptive-boundary-v1":
+            lines.extend(["", (
+                f"Adaptive selection starts with {audit['policy']['initial_target_genomes']} references, "
+                f"extends through boundary near-ties, and retains plausible alternative clusters. "
+                f"This query calls for **{audit['desired_genomes']}** returned references before the "
+                f"**{audit['policy']['max_total_genomes']}**-genome hard ceiling; "
+                f"**{audit['hard_ceiling_omitted']}** are omitted by that ceiling. "
+                "These are computational settings, not validated biological cutoffs."
+            )])
+    else:
+        lines.append("SNP selection preview is inactive because no candidate meets the current screening gate.")
+    lines.append("")
+    if diagnostics["retrieval"]["limit_reached"]:
+        lines.append("**Mashpit's return limit was reached.** Additional matches may be unobserved; their existence and scores are unknown.")
+    else:
+        lines.append("Mashpit's return limit was not reached.")
+    lines.extend(["", "The tolerance is a sketch-resolution heuristic, not a confidence interval, ANI estimate, or strain-assignment cutoff.", ""])
+    if diagnostics.get("plot", {}).get("status") == "PASS":
+        lines.extend(["![Rank versus Mashpit similarity](similarity_distribution/rank_similarity.png)", ""])
+    else:
+        lines.extend(["(Similarity plot unavailable; numerical diagnostics are retained.)", ""])
+    lines.append("[Full ranked scores, cluster composition, and selection audit](similarity_distribution/summary.json)")
+    return lines
+
+
 def _snp_section(result: dict[str, Any]) -> list[str]:
     snp = result.get("snp_resolution")
-    lines = ["## Step 3: Confirmed with SNP-level detail (ska2)", ""]
+    lines = ["## Step 3: Compared at SNP resolution (ska2)", ""]
     if not snp:
         lines.append("Not run for this screen (pass `--snp-resolve` to enable it).")
         return lines
+    expansion = snp.get("expansion", {})
+    if expansion.get("enabled"):
+        lines.extend([
+            f"Cluster expansion: **{expansion['stop_reason']}**, {len(expansion['rounds'])} comparison round(s), "
+            f"{expansion['attempted_genomes']} reference downloads attempted. "
+            f"Unexamined members in the available pool: {expansion['pending_available_members'] if expansion['pending_available_members'] is not None else 'unknown'}.",
+            "", "[Expansion decisions and pinned membership provenance](snp_resolution/expansion.json)", "",
+            "A stable sampled neighborhood does not establish that every closer genome has been found.", "",
+        ])
+    query_input = snp.get("query_input", {})
+    if query_input:
+        lines.extend(["Query used for SKA2: **" + ("cleaned paired-end reads" if query_input["type"] == "paired_reads" else "assembly") + "**.", ""])
     status = snp.get("status")
+    if snp.get("selection"):
+        lines.extend(["[Reference selection and inclusion/exclusion reasons](snp_resolution/targets.json)", ""])
     if status == "SKIPPED":
         lines.append(f"Skipped: {snp.get('reason', 'no reason recorded')}")
         return lines
     if status == "ERROR":
         lines.append(f"Failed: {snp.get('error', 'unknown error')}")
         return lines
-    if status != "RESOLVED":
+    if status not in {"COMPARED", "AMBIGUOUS", "RESOLVED"}:
         lines.append(f"Status: {status}")
         return lines
 
     lines.append(
-        "Mashpit's similarity score is a coarse, sketch-based estimate. To get an exact count of genetic "
-        "differences, the query and the representative genomes from the candidate cluster(s) above were "
-        "compared base-by-base with ska2."
+        "SKA2 counts differences in comparable split-kmer contexts. Ranking includes only references "
+        "that pass the configured shared-kmer and missingness checks. These experimental comparability "
+        "checks are not strain-assignment thresholds."
     )
     lines.append("")
     lines.append("**By cluster, closest to farthest:**")
@@ -112,7 +179,7 @@ def _snp_section(result: dict[str, Any]) -> list[str]:
     ranked = snp.get("ranked", [])
     lines.append("")
     lines.append(f"**{min(TOP_N_GENOMES, len(ranked))} closest individual genomes** "
-                 f"(out of {len(ranked)} compared):")
+                 f"(out of {len(ranked)} qualifying references):")
     lines.append("")
     lines.append("| Genome | Cluster | SNP distance |")
     lines.append("|---|---|---|")
@@ -126,12 +193,11 @@ def _snp_section(result: dict[str, Any]) -> list[str]:
 
     confidence = snp.get("confidence", {})
     lines.append("")
-    lines.append(f"**Bottom line:** {confidence.get('statement', 'No confidence statement available.')}")
+    lines.append(f"**Interpretation:** {confidence.get('statement', 'No comparison statement available.')}")
 
     lines.append("")
     lines.append(
-        "**SNP tree** (exact base-by-base resolution, built from the ska2 distances above, not from "
-        "Mash sketches - your query highlighted):"
+        "**Exploratory SNP-distance tree** (built from qualifying SKA2 comparisons; your query highlighted):"
     )
     lines.append("")
     tree_image = snp.get("tree_image") or {}
@@ -196,13 +262,15 @@ def generate_report(result: dict[str, Any]) -> str:
     lines.append("")
     lines.extend(_mashpit_section(result))
     lines.append("")
+    lines.extend(_similarity_section(result))
+    lines.append("")
     lines.extend(_snp_section(result))
     lines.append("")
     lines.append("## What this does and does not mean")
     lines.append("")
     lines.append(
-        "A close genetic match means this sample and the matched genome(s) likely share a recent common "
-        "source. It does **not** by itself prove they are from the same outbreak, food source, or event - "
+        "A close match identifies candidate genomic neighbors within the examined reference set. "
+        "It does **not** by itself establish a common source, outbreak, or event - "
         "that requires a public health investigation using this result as a starting point, plus a "
         "validated, accredited confirmation pipeline (e.g. an organism-appropriate reference-based SNP "
         "pipeline or cgMLST scheme)."

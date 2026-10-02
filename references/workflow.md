@@ -16,7 +16,7 @@ Paired Illumina input adds:
 validate complete R1/R2 FASTQ → fastp → SKESA → QUAST → assembly-input path
 ```
 
-Commands and parameters come only from `config/workflow.json`. Mashpit is pinned to upstream commit `538d3421302fe6dd129780605b8ff5dedbf4c046c`. The fixed profile is:
+Commands and parameters come from versioned `config/*.json` policies. Mashpit is pinned to upstream commit `538d3421302fe6dd129780605b8ff5dedbf4c046c`. The fixed profile is:
 
 ```text
 mashpit query ASSEMBLY DATABASE --number 200 --threshold 0.85 --tie-tolerance-hashes 2
@@ -30,6 +30,7 @@ The assembly component returns:
 {
   "status": "PASS",
   "assembly_path": "assembly.fasta",
+  "read_paths": ["trimmed_R1.fastq.gz", "trimmed_R2.fastq.gz"],
   "read_qc": {},
   "commands": [],
   "workflow_version": "1.1.0"
@@ -40,6 +41,12 @@ Any future replacement assembly Skill must satisfy this contract and must not we
 
 `--organism` directly selects a supported database when the organism is already known. Without it, local `mlst` 2.35.0 auto-detects a bundled PubMLST scheme. The classifier's complete CSV, stderr log, normalized routing JSON, and command are retained.
 
+## Similarity diagnostics
+
+After parsing Mashpit, the workflow runs `analyze_similarity_distribution.py` to describe the returned scores and audit the adaptive SNP selector. It writes a JSON summary and a rank–similarity plot, included in the report even without `--snp-resolve`. Errors or possible truncation add visible warnings without stopping the screening/refinement workflow. See [similarity-distribution.md](similarity-distribution.md). Workflow 1.4.0 uses policy 2.0.0 for adaptive selection (initial target 50; hard ceiling 200). Query limits and the screening gate are unchanged.
+
 ## Optional SNP resolution
 
 With `--snp-resolve`, once Mashpit returns a candidate, an additional stage selects representative genomes from the relevant cluster(s), downloads them from NCBI, and runs ska2 to compute pairwise SNP distances against the query. See [references/snp-resolution.md](snp-resolution.md). This stage is opt-in and its failure only downgrades `result.json` to a warning — it never turns an otherwise-successful Mash screen into a stopped one.
+
+With `--snp-expand` (workflow 1.5.0), refine in bounded rounds over the exact-release member pool. Cleaned read pairs feed SKA2 directly when the input was reads. See [cluster-expansion.md](cluster-expansion.md) for resource limits, feedback, and stop states.

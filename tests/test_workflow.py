@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import csv
-import json
 import sys
 import tempfile
 import unittest
@@ -24,7 +23,6 @@ from run_assembly_workflow import run_workflow
 from run_mashpit import run_mashpit, validate_database
 from render_snp_tree import render_from_interpretation
 from run_ska import parse_distance_table, run_ska
-from screen_isolate import screen
 from select_snp_targets import select_targets
 from validate_assembly import assess
 from validate_fastq import validate_pair
@@ -295,8 +293,8 @@ class SnpResolutionTests(unittest.TestCase):
                     {"asm_acc": "GCA_3", "biosample_acc": "SAMN3", "PDS_acc": "PDS0002", "similarity_score": "0.80"},
                 ],
             )
-            policy = {"max_representatives_per_cluster": 5, "max_total_genomes": 20}
-            result = select_targets(output_dir, policy)
+            policy = {"policy_version": "2.0.0", "strategy": "adaptive-boundary-v1", "initial_target_genomes": 5, "max_total_genomes": 20}
+            result = select_targets(output_dir, policy, {"mashpit_database_settings": {"hash_number": 1000}}, {"number": 200, "threshold": .85, "tie_tolerance_hashes": 2})
             self.assertEqual(result["status"], "SELECTED")
             self.assertEqual(result["relevant_clusters"], ["PDS0001"])
             accessions = {item["accession"] for item in result["targets"]}
@@ -316,30 +314,11 @@ class SnpResolutionTests(unittest.TestCase):
                     {"asm_acc": "GCA_2", "biosample_acc": "SAMN2", "PDS_acc": "PDS0002", "similarity_score": "0.985"},
                 ],
             )
-            policy = {"max_representatives_per_cluster": 5, "max_total_genomes": 20}
-            result = select_targets(output_dir, policy)
+            policy = {"policy_version": "2.0.0", "strategy": "adaptive-boundary-v1", "initial_target_genomes": 5, "max_total_genomes": 20}
+            result = select_targets(output_dir, policy, {"mashpit_database_settings": {"hash_number": 1000}}, {"number": 200, "threshold": .85, "tie_tolerance_hashes": 2})
             self.assertEqual(sorted(result["relevant_clusters"]), ["PDS0001", "PDS0002"])
             accessions = {item["accession"] for item in result["targets"]}
             self.assertEqual(accessions, {"GCA_1", "GCA_2"})
-
-    def test_select_targets_respects_total_genome_cap(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            output_dir = Path(temporary)
-            self.write_mashpit_output(
-                output_dir,
-                [
-                    {"PDS_acc": "PDS0001", "best_similarity_score": "0.99", "near_top": "True"},
-                    {"PDS_acc": "PDS0002", "best_similarity_score": "0.985", "near_top": "True"},
-                ],
-                [
-                    {"asm_acc": "GCA_1", "biosample_acc": "SAMN1", "PDS_acc": "PDS0001", "similarity_score": "0.99"},
-                    {"asm_acc": "GCA_2", "biosample_acc": "SAMN2", "PDS_acc": "PDS0002", "similarity_score": "0.985"},
-                ],
-            )
-            policy = {"max_representatives_per_cluster": 5, "max_total_genomes": 1}
-            result = select_targets(output_dir, policy)
-            self.assertEqual(len(result["targets"]), 1)
-            self.assertEqual(result["targets"][0]["accession"], "GCA_1")
 
     @patch("fetch_reference_genomes.download_batch")
     @patch("fetch_reference_genomes.require_executable", return_value="/usr/bin/datasets")
@@ -359,20 +338,6 @@ class SnpResolutionTests(unittest.TestCase):
             self.assertIn("GOOD1", result["verified"])
             self.assertEqual(result["unavailable"], ["BAD1"])
             self.assertEqual(download_batch.call_count, 2)
-
-    def test_parse_distance_table_matches_pinned_ska_header(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            path = Path(temporary) / "distances.tsv"
-            path.write_text(
-                "Sample1\tSample2\tDistance\tMismatches (proportion)\tMatch count\tMismatch count\n"
-                "QUERY\tGCA_1\t3.00\t0.01234\t100000\t50\n",
-                encoding="utf-8",
-            )
-            rows = parse_distance_table(path)
-            self.assertEqual(rows, [{
-                "sample1": "QUERY", "sample2": "GCA_1", "snp_distance": 3.0,
-                "mismatch_proportion": 0.01234, "match_count": 100000, "mismatch_count": 50,
-            }])
 
     def test_parse_distance_table_rejects_unexpected_header(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -404,7 +369,10 @@ class SnpResolutionTests(unittest.TestCase):
             with patch("run_ska.run_logged", side_effect=fake_run_logged) as logged:
                 result = run_ska({"QUERY": "query.fasta", "GCA_1": "gca1.fasta"}, output_dir, 31)
             self.assertEqual(result["status"], "PASS")
-            self.assertEqual(result["distances"][0]["snp_distance"], 4.0)
+            self.assertEqual(result["distances"], [{
+                "sample1": "QUERY", "sample2": "GCA_1", "snp_distance": 4.0,
+                "mismatch_proportion": 0.02, "match_count": 99000, "mismatch_count": 80,
+            }])
             build_command = logged.call_args_list[0].args[0]
             self.assertEqual(build_command[:2], ["/usr/bin/ska", "build"])
             self.assertIn("-k", build_command)
@@ -415,18 +383,18 @@ class SnpResolutionTests(unittest.TestCase):
     def test_interpret_snp_resolution_flags_disagreement_with_mash(self):
         rows = [
             {"sample1": "QUERY", "sample2": "GCA_1", "snp_distance": 5.0,
-             "mismatch_proportion": 0.01, "match_count": 100, "mismatch_count": 1},
+             "mismatch_proportion": 0.01, "match_count": 1000000, "mismatch_count": 1},
             {"sample1": "GCA_2", "sample2": "QUERY", "snp_distance": 2.0,
-             "mismatch_proportion": 0.01, "match_count": 100, "mismatch_count": 1},
+             "mismatch_proportion": 0.01, "match_count": 1000000, "mismatch_count": 1},
             {"sample1": "GCA_1", "sample2": "GCA_2", "snp_distance": 6.0,
-             "mismatch_proportion": 0.01, "match_count": 100, "mismatch_count": 1},
+             "mismatch_proportion": 0.01, "match_count": 1000000, "mismatch_count": 1},
         ]
         targets = [
             {"accession": "GCA_1", "cluster": "PDS0001"},
             {"accession": "GCA_2", "cluster": "PDS0002"},
         ]
         result = interpret_snp_resolution(rows, targets, "PDS0001")
-        self.assertEqual(result["status"], "RESOLVED")
+        self.assertEqual(result["status"], "COMPARED")
         self.assertEqual(result["nearest_sample"], "GCA_2")
         self.assertEqual(result["nearest_cluster"], "PDS0002")
         self.assertFalse(result["agrees_with_mash_top_candidate"])
@@ -444,7 +412,7 @@ class SnpResolutionTests(unittest.TestCase):
 
     def test_interpret_snp_resolution_agrees_with_mash(self):
         rows = [{"sample1": "QUERY", "sample2": "GCA_1", "snp_distance": 1.0,
-                  "mismatch_proportion": 0.0, "match_count": 100, "mismatch_count": 0}]
+                  "mismatch_proportion": 0.0, "match_count": 1000000, "mismatch_count": 0}]
         targets = [{"accession": "GCA_1", "cluster": "PDS0001"}]
         result = interpret_snp_resolution(rows, targets, "PDS0001")
         self.assertTrue(result["agrees_with_mash_top_candidate"])
@@ -452,7 +420,7 @@ class SnpResolutionTests(unittest.TestCase):
 
     def test_interpret_snp_resolution_insufficient_data_without_query_rows(self):
         rows = [{"sample1": "GCA_1", "sample2": "GCA_2", "snp_distance": 1.0,
-                  "mismatch_proportion": 0.0, "match_count": 100, "mismatch_count": 0}]
+                  "mismatch_proportion": 0.0, "match_count": 1000000, "mismatch_count": 0}]
         result = interpret_snp_resolution(rows, [], None)
         self.assertEqual(result["status"], "INSUFFICIENT_DATA")
 

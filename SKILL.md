@@ -14,7 +14,7 @@ Use the bundled scripts for computation. Do not construct bioinformatics command
 
    ```bash
      python3 scripts/screen_isolate.py INPUT [INPUT_R2] --output OUTPUT_DIR \
-     [--database-root DATABASE_ROOT] [--organism ORGANISM_KEY] [--snp-resolve]
+     [--database-root DATABASE_ROOT] [--organism ORGANISM_KEY] [--snp-resolve | --snp-expand]
    ```
 
 3. Read `OUTPUT_DIR/result.json`. Use `status`, `stop_reason`, and `user_summary` as the authoritative result.
@@ -25,9 +25,17 @@ Use the bundled scripts for computation. Do not construct bioinformatics command
 
 Pass `--snp-resolve` to additionally compute ska2 pairwise SNP distances between the query and the relevant Mashpit representatives once a candidate is found (read [references/snp-resolution.md](references/snp-resolution.md) first). This is opt-in because, unlike the rest of the screen, it downloads representative genomes from NCBI. Report `result.json`'s `snp_resolution` block alongside the Mash result when present, including whether it agrees with Mashpit's top candidate.
 
+With `--snp-expand`, additionally explore members of plausible clusters from the exact NCBI release under the versioned round/resource policy. Read [references/cluster-expansion.md](references/cluster-expansion.md). Report the stop reason, unexamined members, failed downloads, insufficient comparability, and all nearest ties. Never equate a stable sampled neighborhood or zero observed SNPs with strain identity. Paired-read screens use cleaned reads for SKA2, while initial Mashpit screening still uses the generated assembly.
+
+When available, use the database package's verified membership snapshot for
+expansion. Legacy packages may retrieve the exact-release tables; a corrupt
+snapshot must stop the analysis rather than be replaced by a newer release.
+
 The script accepts exactly one assembly (`.fa`, `.fasta`, `.fna`) or one recognized R1/R2 FASTQ pair. The FASTQ path uses the fixed workflow described in [references/workflow.md](references/workflow.md). Long reads, hybrid reads, interleaved reads, and metagenomes are unsupported.
 
 Use `--organism` when the organism is already known. It accepts `salmonella`, `ecoli_shigella`, `listeria`, `campylobacter`, or `cronobacter` and directly selects that database. When omitted, the fixed workflow runs local `mlst --full --csv` against its pinned bundled PubMLST schemes and maps the detected scheme to a supported database. It does not upload sequence data.
+
+Every successfully parsed Mashpit query also writes `similarity_distribution/summary.json` and, when plotting is available, `similarity_distribution/rank_similarity.png`. Report any return-limit or omitted-near-tie warnings from `result.json`. These diagnostics preview the versioned adaptive selector (initial target 50, hard ceiling 200). With `--snp-resolve`, the same selector supplies the download list and records decisions in `snp_resolution/targets.json`. Report incomplete coverage when the ceiling omits candidates, plausible clusters lack representatives, or selected references cannot be downloaded. Read [references/similarity-distribution.md](references/similarity-distribution.md) to interpret the score tolerance and unknown boundaries.
 
 ## Apply stop rules
 

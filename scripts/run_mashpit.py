@@ -47,16 +47,26 @@ def validate_database(database_dir: Path, expected_name: str) -> dict:
         raise WorkflowError("Mashpit database must contain exactly one .db and one .sig entry.")
     if db_files[0].stem != sig_files[0].stem:
         raise WorkflowError("Mashpit .db and .sig basenames do not match.")
+    signature_checksum = metadata.get("signature_checksum")
+    if signature_checksum and sha256_file(sig_files[0]) != signature_checksum:
+        raise WorkflowError("Mashpit signature checksum verification failed.")
     try:
         with sqlite3.connect(db_files[0]) as connection:
             rows = dict(connection.execute("SELECT name, value FROM DESC").fetchall())
+        if rows.get("Version") and rows["Version"] != metadata["version"]:
+            raise WorkflowError("Database metadata release does not match its Mashpit DESC table.")
         metadata["mashpit_database_settings"] = {
             "type": rows.get("Type"),
+            "species": rows.get("Species"),
             "hash_number": int(rows["Hash_number"]),
             "kmer_size": int(rows["Kmer_size"]),
         }
     except (sqlite3.Error, KeyError, TypeError, ValueError) as error:
         raise WorkflowError(f"Cannot read Mashpit database settings: {error}") from error
+    metadata["database_directory"] = str(database_dir.resolve())
+    if "membership_snapshot" in metadata:
+        from expand_cluster_members import bundled_snapshot
+        bundled_snapshot(metadata)
     return metadata
 
 

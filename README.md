@@ -75,7 +75,7 @@ A first run typically takes a few minutes. If you don't know the organism ahead 
 
 ## What this actually does
 
-Screens a bacterial isolate — raw paired Illumina reads or an assembly — against [Mashpit](https://github.com/tongzhouxu/mashpit), a MinHash-sketch database of NCBI Pathogen Detection SNP clusters, and optionally confirms a candidate at true SNP resolution with [ska2](https://github.com/bacpop/ska.rust). It tells you which known cluster of bacteria your sample most resembles — useful for narrowing down a possible outbreak connection, though it is a screening tool, not proof of one (see [references/limitations.md](references/limitations.md)).
+Screens a bacterial isolate — raw paired Illumina reads or an assembly — against [Mashpit](https://github.com/tongzhouxu/mashpit), a MinHash-sketch database of NCBI Pathogen Detection SNP clusters, and optionally refines candidates using split-kmer SNP comparisons with [ska2](https://github.com/bacpop/ska.rust). It tells you which known cluster of bacteria your sample most resembles — useful for narrowing down a possible outbreak connection, though it is a screening tool, not proof of one (see [references/limitations.md](references/limitations.md)).
 
 Every command, threshold, and parameter it runs is fixed in version-controlled config (`config/*.json`) — the AI assistant only runs one script and reports the result back to you; it never invents a bioinformatics command or a cutoff on its own. See [SKILL.md](SKILL.md) for the full technical contract it follows.
 
@@ -89,7 +89,7 @@ You need two things: the container image, and a Mashpit database for at least on
 
 The container image uses `ghcr.io/tongzhouxu/isoscout`; the examples tag it locally as `isoscout:local`.
 
-**1. Get the image** — either pull the pre-built one:
+**1. Get the image** — pull the published baseline image:
 
 ```bash
 # The registry package is currently private; authorized GHCR login is required.
@@ -97,36 +97,43 @@ docker pull --platform linux/amd64 ghcr.io/tongzhouxu/isoscout:latest
 docker tag ghcr.io/tongzhouxu/isoscout:latest isoscout:local
 ```
 
-or build it yourself:
+This image was published on 2026-10-01 and predates the adaptive selection,
+cluster expansion, and bundled membership code in this checkout. A clean build
+from `container/Dockerfile` currently fails at conda dependency resolution. To
+test the updated code with the existing pinned tools, run from the repository
+root and add `--volume "$PWD:/opt/isoscout:ro"` to the `docker run` command below.
+All 89 tests, including the real SKA2 test, passed this way on 2026-10-02.
+Keep the checkout revision with any results produced this way: the configured
+container digest identifies the baseline image, not the mounted source tree.
 
-```bash
-docker build --platform linux/amd64 --tag isoscout:local --file container/Dockerfile .
-```
+The published image is `linux/amd64` only: `quast=5.3.0` has no native
+`linux/arm64` build for the pinned Python 3.11. Use `--platform linux/amd64`
+on Apple Silicon to run it under emulation.
 
-Build check (2026-10-01): a clean dependency install currently fails with a conda dependency-resolution conflict. The local IsoScout image was built by retaining the existing image's installed dependencies and replacing its bundled project files; its entrypoint and all 36 unit tests passed. The renamed image was published to `ghcr.io/tongzhouxu/isoscout:latest` on 2026-10-01.
-
-`--platform linux/amd64` is required everywhere here, not just on Apple Silicon: the image is only published/buildable for `linux/amd64` because `quast=5.3.0` has no native `linux/arm64` build compatible with the pinned Python 3.11. It runs fine under emulation on Apple Silicon; omitting the flag there pulls/builds nothing since Docker defaults to your host's native architecture.
-
-**2. Get a database** — download the pre-built ones from [Releases](../../releases/tag/databases-v1):
+**2. Get a database** — download one of the published baseline packages from
+[databases-v1](https://github.com/tongzhouxu/IsoScout/releases/tag/databases-v1). Set `org` to your sample's
+organism key:
 
 ```bash
 mkdir -p ~/.isoscout/databases && cd ~/.isoscout/databases
-for org in salmonella ecoli_shigella listeria campylobacter cronobacter; do
-  curl -LO "https://github.com/tongzhouxu/IsoScout/releases/download/databases-v1/${org}.tar.gz"
-done
-curl -LO https://github.com/tongzhouxu/IsoScout/releases/download/databases-v1/checksums.sha256.txt
-shasum -a 256 -c checksums.sha256.txt   # verify before extracting
-for f in *.tar.gz; do tar -xzf "$f"; done
+org=salmonella
+curl -fLO "https://github.com/tongzhouxu/IsoScout/releases/download/databases-v1/${org}.tar.gz"
+curl -fLO https://github.com/tongzhouxu/IsoScout/releases/download/databases-v1/checksums.sha256.txt
+grep "  ${org}.tar.gz$" checksums.sha256.txt | shasum -a 256 -c -
+tar -xzf "${org}.tar.gz"
 ```
 
 You only need the organism(s) you actually plan to screen against — each is independent. `screen_isolate.py` additionally verifies a per-file checksum recorded in each organism's `database.json` on every run, so a corrupted or tampered database is caught automatically, not just at download time.
 
-Database creation and updating are out of scope for this skill; see [mashpit](https://github.com/tongzhouxu/mashpit) itself for that.
+Building the underlying Mashpit `.db` and `.sig` is outside this skill; see
+[Mashpit](https://github.com/tongzhouxu/mashpit). This repository does include
+a builder for packaging an existing database with its exact-release membership
+tables.
 
 ## Run a screen
 
 ```bash
-docker run --rm \
+docker run --rm --platform linux/amd64 \
   --volume "/absolute/path/to/data:/data:ro" \
   --volume "$HOME/.isoscout/databases:/databases:ro" \
   --volume "/absolute/path/to/results:/results" \
@@ -141,15 +148,32 @@ docker run --rm \
 - Omit `--organism` to auto-detect it with local `mlst` against its bundled PubMLST schemes instead of asserting it.
 - The output directory must not already exist — nothing gets silently overwritten.
 
-Add `--snp-resolve` to also download the relevant representative genomes from NCBI and compute exact pairwise SNP distances with ska2 once a Mashpit candidate is found — a Neighbor-Joining tree, a per-cluster distance summary, and a confidence comparison between the nearest and next-nearest cluster. This is the only step that reaches out to the network (for public reference genomes; the query itself is never uploaded), so it's opt-in. See [references/snp-resolution.md](references/snp-resolution.md).
+Add `--snp-resolve` to also download the relevant representative genomes from NCBI and compute split-kmer SNP distances with ska2 once a Mashpit candidate is found — a Neighbor-Joining tree, a per-cluster distance summary, and a confidence comparison between the nearest and next-nearest cluster. This is the only step that reaches out to the network (for public reference genomes; the query itself is never uploaded), so it's opt-in. See [references/snp-resolution.md](references/snp-resolution.md).
+
+Add `--snp-expand` to enable SNP refinement plus bounded exploration of additional members from the exact NCBI cluster release. Each round records why it expands or stops; stable sampling is not exhaustive search. For paired-read inputs, SKA2 uses cleaned reads directly, although Mashpit still needs the generated assembly. See [cluster expansion](references/cluster-expansion.md) and [verification/benchmarking](references/benchmarking.md). The implementation and comparability defaults require biological validation before strain-assignment claims.
+
+The published `databases-v1` packages do not include full cluster membership.
+All five `databases-v2` packages have been built and verified locally with the
+[database package builder](references/setup.md#database-packages-with-local-cluster-membership),
+but `databases-v2` has not yet been published. They bundle exact-release metadata
+and cluster-membership tables so expansion can work after NCBI removes that
+release. Existing packages continue to use exact-release retrieval while it is
+available. Reference genome assemblies for SKA2 still require a separate download.
 
 ### Reading the result
 
-Three files land in the output directory:
+Three primary files land in the output directory, alongside stage-specific
+audits and logs:
 
 - **`report.md`** — a plain-language summary for a non-technical reader: organism determination, read QC when the input was raw reads, Mashpit's candidate clusters and scores plus its own Mash-based tree, and (with `--snp-resolve`) the ska2 SNP tables, confidence statement, and SNP tree — both trees rendered as PNGs with the query highlighted.
 - **`result.json`** — the structured, authoritative result. Use `status`, `stop_reason`, and `user_summary`.
 - **`provenance.json`** — checksums, pinned tool versions, and every command actually run, for reproducibility.
+
+### Similarity-distribution diagnostics
+
+Each successfully parsed Mashpit query now adds a rank–similarity plot and numerical diagnostics to the report. These show score gaps at ranks 50/100/200, the number of representatives within Mashpit's sketch tolerance of the best score, and whether retrieval or the current SNP selection policy may cut through a near-tie. They preview the adaptive selection policy: start with 50 references, extend through boundary near-ties while retaining plausible alternative clusters, and apply a hard ceiling of 200. With `--snp-resolve`, this policy supplies the download list. Every inclusion/exclusion and any incomplete coverage are recorded; these computational defaults still require biological benchmarking.
+
+Full ranked scores, cluster composition, source checksums, and cutoff flags are saved in `similarity_distribution/summary.json`. See [the diagnostics guide](references/similarity-distribution.md) for interpretation and the standalone command for previous runs. Use the updated checkout mounted as described above; the existing published image is unchanged.
 
 ## Test without biological tools or databases
 
@@ -157,7 +181,12 @@ Three files land in the output directory:
 PYTHONPYCACHEPREFIX=/tmp/isoscout_pycache python3 -m unittest discover -s tests -v
 ```
 
-These unit tests mock external bioinformatics execution and don't need Docker, Mashpit, or a real database. A real end-to-end run additionally needs the container and at least one downloaded database, per Manual setup above.
+The default suite mocks external bioinformatics execution and does not need
+Docker, Mashpit, or a real database (89 tests; one integration test skipped).
+With the updated checkout mounted in the pinned-tool container,
+`ISOSCOUT_TOOL_TESTS=1` runs all 89, including real SKA2 on synthetic
+assembly/read inputs. A real end-to-end run additionally needs the container
+and at least one database, per Manual setup above.
 
 ## Reference docs
 

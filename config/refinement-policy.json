@@ -1,0 +1,14 @@
+{
+  "policy_version": "1.0.1",
+  "comparability": {
+    "min_shared_split_kmers": 100000,
+    "max_mismatch_proportion": 0.1
+  },
+  "expansion": {
+    "batch_size": 25,
+    "max_rounds": 8,
+    "max_total_genomes": 200,
+    "stable_rounds_to_stop": 2,
+    "max_metadata_file_bytes": 1073741824
+  }
+}

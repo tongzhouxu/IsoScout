@@ -58,6 +58,7 @@ def run_workflow(r1: Path, r2: Path, output_dir: Path) -> dict:
     result = {
         "status": "PASS",
         "assembly_path": str(assembly),
+        "read_paths": [str(trimmed_r1), str(trimmed_r2)],
         "read_qc": {
             "status": "WARN" if q30_rate is not None and q30_rate < 0.80 else "PASS",
             "q30_fraction": q30_rate,
