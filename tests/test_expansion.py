@@ -154,6 +154,7 @@ class InterpretationTests(unittest.TestCase):
         result = interpret(rows, [{"accession": "A", "cluster": "C1"}, {"accession": "B", "cluster": "C2"}], "C1")
         self.assertEqual(result["nearest_sample"], "B")
         self.assertEqual(len(result["excluded_comparisons"]), 1)
+        self.assertIn("insufficient_shared_split_kmers", result["excluded_comparisons"][0]["reasons"])
 
     def test_zero_ties_across_clusters_are_ambiguous(self):
         rows = [comparison("QUERY", "A", 0), comparison("QUERY", "B", 0), comparison("A", "B", 0)]
@@ -192,7 +193,7 @@ class IterativeWorkflowTests(unittest.TestCase):
         self.case.fixture([1.])
         self.membership = {"status": "AVAILABLE", "release": "fixture", "sources": [], "members": [{"accession": f"MEMBER_{i:03d}", "cluster": "C1"} for i in range(100)]}
 
-    def execute(self, interpretations, membership=None, settings=None, ska_results=None, failed_members=False):
+    def execute(self, interpretations, membership=None, settings=None, ska_results=None, failed_members=False, query_accession=None):
         def fetch(accessions, *_):
             if failed_members and all(acc.startswith("MEMBER_") for acc in accessions):
                 return {"commands": [], "verified": {}, "unavailable": accessions}
@@ -203,12 +204,12 @@ class IterativeWorkflowTests(unittest.TestCase):
         def config(path):
             return refinement if path.name == "refinement-policy.json" else real_load(path)
         with patch("screen_isolate.load_json", side_effect=config), patch("screen_isolate.fetch_genomes", side_effect=fetch) as download, patch("screen_isolate.run_ska", return_value={"commands": [], "distances": []}, side_effect=ska_results), patch("screen_isolate.interpret_snp_resolution", side_effect=interpretations), patch("screen_isolate.discover_members", return_value=membership or self.membership), patch("screen_isolate.render_from_interpretation", return_value={"status": "SKIPPED"}):
-            result = run_snp_resolution(self.case.source, self.case.root / "query.fa", "C1", self.case.root / "snp", self.case.database, expand=True)
+            result = run_snp_resolution(self.case.source, self.case.root / "query.fa", "C1", self.case.root / "snp", self.case.database, expand=True, query_accession=query_accession)
         return result["snp_resolution"], [call.args[0] for call in download.call_args_list]
 
     @staticmethod
     def comparison(distance=5, samples=None):
-        return {"status": "COMPARED", "ranked": [1], "nearest_snp_distance": distance, "nearest_samples": samples or ["GCA_0000"], "nearest_clusters": ["C1"], "excluded_comparisons": [], "warnings": []}
+        return {"status": "COMPARED", "ranked": [{"sample": (samples or ["GCA_0000"])[0]}], "nearest_snp_distance": distance, "nearest_samples": samples or ["GCA_0000"], "nearest_clusters": ["C1"], "excluded_comparisons": [], "warnings": []}
 
     def test_stability_stop_is_explicitly_incomplete(self):
         result, downloads = self.execute([self.comparison() for _ in range(3)])
@@ -228,6 +229,13 @@ class IterativeWorkflowTests(unittest.TestCase):
         result, downloads = self.execute([self.comparison(), self.comparison()], settings={"max_total_genomes": 4})
         self.assertEqual([len(batch) for batch in downloads], [1, 3])
         self.assertEqual(result["expansion"]["stop_reason"], "hard_resource_ceiling")
+
+    def test_separate_expansion_budget_limits_later_attempts(self):
+        result, downloads = self.execute([self.comparison(), self.comparison()],
+                                         settings={"max_additional_reference_attempts": 3})
+        self.assertEqual([len(batch) for batch in downloads], [1, 3])
+        self.assertEqual(result["expansion"]["additional_reference_attempts"], 3)
+        self.assertEqual(result["expansion"]["stop_reason"], "additional_expansion_budget")
 
     def test_missing_snapshot_keeps_initial_comparison(self):
         result, downloads = self.execute([self.comparison()], membership={"status": "UNAVAILABLE", "error": "snapshot absent", "members": []})
@@ -272,6 +280,41 @@ class IterativeWorkflowTests(unittest.TestCase):
         self.assertEqual(result["expansion"]["stop_reason"], "available_member_pool_exhausted")
         self.assertEqual(result["expansion"]["pending_available_members"], 0)
 
+    def test_alternative_selected_cluster_members_join_expansion(self):
+        self.case.fixture([1., .995], ["C1", "C2"])
+        membership = {"status": "AVAILABLE", "members": [
+            {"accession": "MEMBER_A", "cluster": "C1"},
+            {"accession": "MEMBER_B", "cluster": "C2"},
+        ]}
+        nearest_c2 = {**self.comparison(), "nearest_clusters": ["C2"]}
+        result, downloads = self.execute([nearest_c2, nearest_c2], membership=membership,
+                                         settings={"batch_size": 2, "max_rounds": 2})
+        self.assertEqual(downloads[0], ["GCA_0000", "GCA_0001"])
+        self.assertEqual(downloads[1], ["MEMBER_B", "MEMBER_A"])
+        self.assertEqual(result["coverage"]["members_unexamined"], [])
+
+    def test_selected_rank_only_member_priority_is_configurable(self):
+        self.case.fixture([1., .995], ["C1", "C2"])
+        membership = {"status": "AVAILABLE", "members": [
+            {"accession": "MEMBER_A", "cluster": "C1"},
+            {"accession": "MEMBER_B", "cluster": "C2"},
+        ]}
+        nearest_c2 = {**self.comparison(), "nearest_clusters": ["C2"]}
+        _, downloads = self.execute([nearest_c2, nearest_c2], membership=membership,
+                                    settings={"batch_size": 2, "max_rounds": 2, "cluster_priority": "selected_rank_only"})
+        self.assertEqual(downloads[1], ["MEMBER_A", "MEMBER_B"])
+
+    def test_query_self_is_not_reintroduced_by_member_expansion(self):
+        self.case.fixture([1., .995], ["C1", "C1"])
+        membership = {"status": "AVAILABLE", "members": [
+            {"accession": "GCA_0000", "cluster": "C1"},
+            {"accession": "MEMBER_A", "cluster": "C1"},
+        ]}
+        result, downloads = self.execute([self.comparison(), self.comparison()], membership=membership,
+                                         settings={"batch_size": 2, "max_rounds": 2}, query_accession="GCA_0000")
+        self.assertEqual(downloads, [["GCA_0001"], ["MEMBER_A"]])
+        self.assertTrue(result["coverage"]["query_self_excluded_from_members"])
+
     def test_read_screen_passes_cleaned_reads_to_refinement(self):
         root = self.case.root
         r1, r2 = root / "sample_R1.fastq", root / "sample_R2.fastq"
@@ -284,7 +327,7 @@ class IterativeWorkflowTests(unittest.TestCase):
         fake_run = {"command": ["mashpit"], "database": self.case.database, "output_directory": str(self.case.source)}
         with patch("screen_isolate.run_workflow", return_value=built), patch("screen_isolate.assess", return_value={"status": "PASS", "metrics": {"total_length": 4}}), patch("screen_isolate.run_mashpit", return_value=fake_run), patch("screen_isolate.run_snp_resolution", return_value={"snp_resolution": {"status": "SKIPPED"}, "commands": []}) as refine, patch("screen_isolate.collect", return_value={}), patch("analyze_similarity_distribution.render_plot", return_value={"status": "SKIPPED"}):
             screen([r1, r2], root / "screen", root, organism="listeria", snp_resolve=True)
-        self.assertEqual(refine.call_args.args[-1], clean_reads)
+        self.assertEqual(refine.call_args.args[-3], clean_reads)
 
 
 class ReadAndDistanceContractTests(unittest.TestCase):

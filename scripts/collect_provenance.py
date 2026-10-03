@@ -17,11 +17,18 @@ def collect(
 ) -> dict[str, Any]:
     workflow = load_json(CONFIG_DIR / "workflow.json")
     qc_policy = load_json(CONFIG_DIR / "qc-policy.json")
+    selection_policy = load_json(CONFIG_DIR / "snp-resolution-policy.json")
+    refinement_policy = load_json(CONFIG_DIR / "refinement-policy.json")
     provenance = {
         "timestamp_utc": utc_now(),
         "skill_version": workflow["skill_version"],
         "workflow_version": workflow["workflow_version"],
         "qc_policy_version": qc_policy["policy_version"],
+        "snp_selection_policy": selection_policy,
+        "refinement_policy": refinement_policy,
+        "snp_selection_policy_sha256": sha256_file(CONFIG_DIR / "snp-resolution-policy.json"),
+        "snp_selector_sha256": sha256_file(Path(__file__).with_name("select_snp_targets.py")),
+        "refinement_policy_sha256": sha256_file(CONFIG_DIR / "refinement-policy.json"),
         "container": {
             "image": workflow["container_image"],
             "digest": workflow["container_digest"],

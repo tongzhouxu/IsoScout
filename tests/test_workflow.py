@@ -293,12 +293,12 @@ class SnpResolutionTests(unittest.TestCase):
                     {"asm_acc": "GCA_3", "biosample_acc": "SAMN3", "PDS_acc": "PDS0002", "similarity_score": "0.80"},
                 ],
             )
-            policy = {"policy_version": "2.0.0", "strategy": "adaptive-boundary-v1", "initial_target_genomes": 5, "max_total_genomes": 20}
+            policy = {"policy_version": "3.0.0", "strategy": "global-ranked-cluster-coverage-v1", "default_mode": "adaptive", "coverage_strategy": "unrepresented_cluster_leaders_then_global_rank", "initial_target_genomes": 5, "max_returned_representatives": 20, "max_total_genomes": 20}
             result = select_targets(output_dir, policy, {"mashpit_database_settings": {"hash_number": 1000}}, {"number": 200, "threshold": .85, "tie_tolerance_hashes": 2})
             self.assertEqual(result["status"], "SELECTED")
-            self.assertEqual(result["relevant_clusters"], ["PDS0001"])
+            self.assertEqual(result["selected_clusters"], ["PDS0001", "PDS0002"])
             accessions = {item["accession"] for item in result["targets"]}
-            self.assertEqual(accessions, {"GCA_1", "GCA_2"})
+            self.assertEqual(accessions, {"GCA_1", "GCA_2", "GCA_3"})
 
     def test_select_targets_ambiguous_includes_near_top_cluster(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -314,9 +314,9 @@ class SnpResolutionTests(unittest.TestCase):
                     {"asm_acc": "GCA_2", "biosample_acc": "SAMN2", "PDS_acc": "PDS0002", "similarity_score": "0.985"},
                 ],
             )
-            policy = {"policy_version": "2.0.0", "strategy": "adaptive-boundary-v1", "initial_target_genomes": 5, "max_total_genomes": 20}
+            policy = {"policy_version": "3.0.0", "strategy": "global-ranked-cluster-coverage-v1", "default_mode": "adaptive", "coverage_strategy": "unrepresented_cluster_leaders_then_global_rank", "initial_target_genomes": 5, "max_returned_representatives": 20, "max_total_genomes": 20}
             result = select_targets(output_dir, policy, {"mashpit_database_settings": {"hash_number": 1000}}, {"number": 200, "threshold": .85, "tie_tolerance_hashes": 2})
-            self.assertEqual(sorted(result["relevant_clusters"]), ["PDS0001", "PDS0002"])
+            self.assertEqual(sorted(result["selected_clusters"]), ["PDS0001", "PDS0002"])
             accessions = {item["accession"] for item in result["targets"]}
             self.assertEqual(accessions, {"GCA_1", "GCA_2"})
 

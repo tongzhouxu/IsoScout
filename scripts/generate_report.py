@@ -48,7 +48,7 @@ def _mashpit_section(result: dict[str, Any]) -> list[str]:
     alternatives = match.get("alternative_candidates") or []
     if alternatives:
         lines.append("")
-        lines.append("Other clusters that scored close enough to also consider:")
+        lines.append("Other Mashpit-displayed clusters (sketch alternatives; SNP testing coverage is reported separately):")
         lines.append("")
         lines.append("| Cluster | Score |")
         lines.append("|---|---|")
@@ -58,8 +58,8 @@ def _mashpit_section(result: dict[str, Any]) -> list[str]:
         lines.append("")
         lines.append(
             "**Mashpit could not cleanly separate the top clusters** - more than one scored close enough "
-            "to be a plausible match at this coarse screening resolution. This is exactly what SNP-level "
-            "resolution (below) is for."
+            "to be a plausible match at this coarse screening resolution. The SNP comparison below only covers "
+            "references actually downloaded and compared."
         )
     tree_image = match.get("tree_image") or {}
     lines.append("")
@@ -104,14 +104,14 @@ def _similarity_section(result: dict[str, Any]) -> list[str]:
             "of the best score. This is a policy preview, not a count of downloaded or compared genomes."
         )
         audit = preview.get("audit", {})
-        if audit.get("policy", {}).get("strategy") == "adaptive-boundary-v1":
+        if audit.get("policy", {}).get("strategy") == "global-ranked-cluster-coverage-v1":
             lines.extend(["", (
-                f"Adaptive selection starts with {audit['policy']['initial_target_genomes']} references, "
-                f"extends through boundary near-ties, and retains plausible alternative clusters. "
-                f"This query calls for **{audit['desired_genomes']}** returned references before the "
-                f"**{audit['policy']['max_total_genomes']}**-genome hard ceiling; "
-                f"**{audit['hard_ceiling_omitted']}** are omitted by that ceiling. "
-                "These are computational settings, not validated biological cutoffs."
+                f"Mode **{audit['mode']}**: first {audit['policy']['initial_target_genomes']} global ranked references, "
+                f"up to {audit['policy']['max_returned_representatives']} returned references in adaptive mode, "
+                f"and {audit['policy']['max_total_genomes']} total reference attempts. "
+                f"**{audit['unexamined_returned_representatives']}** returned representatives and "
+                f"**{len(audit['unexamined_clusters'])}** whole returned clusters are outside this selection preview. "
+                "These omissions reflect the budget, not SNP evidence."
             )])
     else:
         lines.append("SNP selection preview is inactive because no candidate meets the current screening gate.")
@@ -120,7 +120,7 @@ def _similarity_section(result: dict[str, Any]) -> list[str]:
         lines.append("**Mashpit's return limit was reached.** Additional matches may be unobserved; their existence and scores are unknown.")
     else:
         lines.append("Mashpit's return limit was not reached.")
-    lines.extend(["", "The tolerance is a sketch-resolution heuristic, not a confidence interval, ANI estimate, or strain-assignment cutoff.", ""])
+    lines.extend(["", "The tolerance is an experimental descriptive sketch-resolution heuristic, not a SNP eligibility gate, confidence interval, ANI estimate, or strain-assignment cutoff.", ""])
     if diagnostics.get("plot", {}).get("status") == "PASS":
         lines.extend(["![Rank versus Mashpit similarity](similarity_distribution/rank_similarity.png)", ""])
     else:
@@ -140,6 +140,7 @@ def _snp_section(result: dict[str, Any]) -> list[str]:
         lines.extend([
             f"Cluster expansion: **{expansion['stop_reason']}**, {len(expansion['rounds'])} comparison round(s), "
             f"{expansion['attempted_genomes']} reference downloads attempted. "
+            f"Additional attempts: {expansion.get('additional_reference_attempts', 0)}/{expansion['policy'].get('max_additional_reference_attempts', 'unknown')}. "
             f"Unexamined members in the available pool: {expansion['pending_available_members'] if expansion['pending_available_members'] is not None else 'unknown'}.",
             "", "[Expansion decisions and pinned membership provenance](snp_resolution/expansion.json)", "",
             "A stable sampled neighborhood does not establish that every closer genome has been found.", "",
@@ -148,8 +149,32 @@ def _snp_section(result: dict[str, Any]) -> list[str]:
     if query_input:
         lines.extend(["Query used for SKA2: **" + ("cleaned paired-end reads" if query_input["type"] == "paired_reads" else "assembly") + "**.", ""])
     status = snp.get("status")
-    if snp.get("selection"):
+    if snp.get("selection") or snp.get("decisions"):
         lines.extend(["[Reference selection and inclusion/exclusion reasons](snp_resolution/targets.json)", ""])
+    coverage = snp.get("coverage") or {}
+    if coverage:
+        lines.extend([
+            f"SNP reference coverage: {coverage['mashpit_returned_unique']} unique Mashpit representatives returned; "
+            f"{coverage['returned_selected']} selected; {len(coverage['reference_downloads_attempted'])} downloads attempted; "
+            f"{len(coverage['reference_downloads_verified'])} verified; "
+            f"{len(coverage['query_comparisons_qualifying'])} qualifying query comparisons; "
+            f"{len(coverage['query_comparisons_excluded'])} comparability exclusions; "
+            f"{len(coverage['returned_unexamined'])} returned representatives unexamined.",
+            f"Unexamined available members: {len(coverage['members_unexamined']) if coverage['members_unexamined'] is not None else 'unknown'}. "
+            "Mashpit-displayed alternatives are not necessarily SNP-tested alternatives.",
+            "", "[Full reference and member coverage](snp_resolution/interpretation.json)", "",
+        ])
+        displayed = result.get("mashpit_result") or {}
+        displayed_clusters = [row["cluster"] for row in ([displayed["best_candidate"]] if displayed.get("best_candidate") else []) + displayed.get("alternative_candidates", [])]
+        if displayed_clusters:
+            by_cluster = {row["cluster"]: row for row in coverage["clusters"]}
+            lines.extend(["Mashpit-displayed clusters versus SNP-tested references:", "",
+                          "| Cluster | Returned | Selected | Qualifying SNP comparisons | Unexamined returned |",
+                          "|---|---:|---:|---:|---:|"])
+            for cluster in dict.fromkeys(displayed_clusters):
+                row = by_cluster.get(cluster, {})
+                lines.append(f"| {cluster} | {row.get('returned', 0)} | {row.get('selected', 0)} | {row.get('qualifying_query_comparisons', 0)} | {row.get('returned_unexamined', 0)} |")
+            lines.append("")
     if status == "SKIPPED":
         lines.append(f"Skipped: {snp.get('reason', 'no reason recorded')}")
         return lines
@@ -194,6 +219,9 @@ def _snp_section(result: dict[str, Any]) -> list[str]:
     confidence = snp.get("confidence", {})
     lines.append("")
     lines.append(f"**Interpretation:** {confidence.get('statement', 'No comparison statement available.')}")
+    if snp.get("nearest_samples"):
+        lines.append("All equally nearest qualifying references: " + ", ".join(snp["nearest_samples"]) + ".")
+    lines.append("A stable result within sampled clusters does not rule out unexamined returned clusters or members.")
 
     lines.append("")
     lines.append(

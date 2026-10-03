@@ -124,7 +124,18 @@ def interpret(
         if item["cluster"] is not None and comparison_qualifies(item, policy):
             ranked.append(item)
         else:
-            excluded.append({**item, "reason": "insufficient_comparability_or_unknown_reference"})
+            reasons = []
+            if item["cluster"] is None:
+                reasons.append("unknown_reference_cluster")
+            if not math.isfinite(item["snp_distance"]) or item["snp_distance"] < 0:
+                reasons.append("invalid_snp_distance")
+            if item["match_count"] < policy["min_shared_split_kmers"]:
+                reasons.append("insufficient_shared_split_kmers")
+            if not math.isfinite(item["mismatch_proportion"]) or not 0 <= item["mismatch_proportion"] <= policy["max_mismatch_proportion"]:
+                reasons.append("excess_or_invalid_mismatch_proportion")
+            if item["mismatch_count"] < 0:
+                reasons.append("invalid_mismatch_count")
+            excluded.append({**item, "reasons": reasons})
     ranked.sort(key=lambda item: (item["snp_distance"], item["sample"]))
     warnings = []
     if excluded:

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import re
 import shutil
 from pathlib import Path
 from typing import Any
@@ -78,17 +79,21 @@ def summary_text(result: dict[str, Any]) -> str:
 def run_snp_resolution(
     mashpit_output_dir: Path, assembly: Path, best_cluster: str, output_dir: Path,
     database_metadata: dict[str, Any] | None = None, expand: bool = False,
-    query_reads: list[str] | None = None,
+    query_reads: list[str] | None = None, selection_mode: str | None = None,
+    query_accession: str | None = None,
 ) -> dict[str, Any]:
     policy = load_json(CONFIG_DIR / "snp-resolution-policy.json")
     workflow = load_json(CONFIG_DIR / "workflow.json")
     refinement_policy = load_json(CONFIG_DIR / "refinement-policy.json")
     expansion_policy = refinement_policy["expansion"]
+    if expansion_policy.get("cluster_priority") not in {"nearest_then_selected_rank", "selected_rank_only"}:
+        raise WorkflowError("Unknown member expansion cluster-priority strategy.")
     kmer_size = workflow["snp_resolution"]["kmer_size"]
     commands: list[list[str]] = []
     targets_result = select_targets(
         mashpit_output_dir, policy, database_metadata,
         workflow["mashpit"] if database_metadata is not None else None,
+        mode=selection_mode, query_accession=query_accession,
     )
     write_json(output_dir / "targets.json", targets_result)
     if targets_result["status"] != "SELECTED":
@@ -109,8 +114,11 @@ def run_snp_resolution(
     warnings = list(targets_result.get("warnings", []))
     # The total cap includes attempted downloads, even when some fail.
     cap = expansion_policy["max_total_genomes"]
-    if expand and len(batch) > cap:
-        raise WorkflowError("Initial selection exceeds the configured expansion ceiling.")
+    expansion_cap = expansion_policy["max_additional_reference_attempts"]
+    if not isinstance(expansion_cap, int) or isinstance(expansion_cap, bool) or expansion_cap <= 0:
+        raise WorkflowError("Expansion max_additional_reference_attempts must be positive.")
+    if len(batch) > cap:
+        raise WorkflowError("Representative selection exceeds the configured total reference-attempt budget.")
     interpretation = {"status": "ERROR", "ranked": [], "warnings": []}
     last_compared_count = 0
     for round_index in range(expansion_policy["max_rounds"] if expand else 1):
@@ -166,16 +174,19 @@ def run_snp_resolution(
         if len(attempted) >= cap:
             stop_reason = "hard_resource_ceiling"
             break
+        if len(attempted) - targets_result["selected_genomes"] >= expansion_cap:
+            stop_reason = "additional_expansion_budget"
+            break
         if membership is None:
-            membership = discover_members(database_metadata, targets_result["relevant_clusters"], output_dir / "membership", expansion_policy)
+            membership = discover_members(database_metadata, targets_result["selected_clusters"], output_dir / "membership", expansion_policy)
             if membership["status"] != "AVAILABLE":
                 stop_reason = "membership_unavailable"
                 warnings.append("Cluster expansion unavailable: " + membership.get("error", "unknown error"))
                 break
             # Include returned but unselected representatives as well as members.
-            combined = {item["accession"]: item for item in membership["members"]}
+            combined = {item["accession"]: item for item in membership["members"] if item["accession"] != query_accession}
             for item in targets_result["decisions"]:
-                if item["cluster"] in targets_result["relevant_clusters"]:
+                if item["cluster"] in targets_result["selected_clusters"] and item["accession"] != query_accession:
                     if item["accession"] in combined and combined[item["accession"]]["cluster"] != item["cluster"]:
                         membership["status"] = "CONFLICT"
                         stop_reason = "membership_conflict"
@@ -196,16 +207,19 @@ def run_snp_resolution(
         if round_index + 1 >= expansion_policy["max_rounds"]:
             stop_reason = "round_limit"
             break
-        priority = list(interpretation.get("nearest_clusters", []))
-        priority.extend(cluster for cluster in targets_result["relevant_clusters"] if cluster not in priority)
-        batch = next_batch(members, attempted, priority, expansion_policy["batch_size"], cap - len(attempted))
+        priority = list(interpretation.get("nearest_clusters", [])) if expansion_policy["cluster_priority"] == "nearest_then_selected_rank" else []
+        priority.extend(cluster for cluster in targets_result["selected_clusters"] if cluster not in priority)
+        batch = next_batch(members, attempted, priority, expansion_policy["batch_size"],
+                           min(cap - len(attempted), expansion_cap - (len(attempted) - targets_result["selected_genomes"])))
         previous = interpretation
-    pending_count = sum(item["accession"] not in attempted for item in members) if membership and membership["status"] == "AVAILABLE" else None
+    pending_count = sum(item["accession"] not in attempted and item["accession"] != query_accession for item in membership["members"]) if membership and membership["status"] == "AVAILABLE" else None
     expansion = {
         "enabled": expand, "policy": expansion_policy, "stop_reason": stop_reason,
         "rounds": rounds, "attempted_genomes": len(attempted), "pending_available_members": pending_count,
+        "additional_reference_attempts": max(0, len(attempted) - targets_result["selected_genomes"]),
         "membership": membership, "all_attempted_targets": list(targets.values()),
         "interpretation": "Stability applies to sampled references only; it does not prove no closer unexamined genome exists.",
+        "cluster_priority_rule": ("SNP-nearest qualifying clusters first (including all ties), then other selected returned clusters in best representative rank order" if expansion_policy["cluster_priority"] == "nearest_then_selected_rank" else "Selected returned clusters in best representative rank order") + "; round-robin members by accession within clusters.",
     }
     if expand and (pending_count is None or pending_count > 0):
         warnings.append(f"Expansion stopped at {stop_reason}; the candidate neighborhood remains incompletely examined.")
@@ -217,6 +231,43 @@ def run_snp_resolution(
     interpretation["selection"] = targets_result
     interpretation["unavailable"] = sorted(unavailable)
     interpretation["expansion"] = expansion
+    qualifying = {row["sample"] for row in interpretation.get("ranked", [])}
+    excluded = {row["sample"] for row in interpretation.get("excluded_comparisons", [])}
+    returned_accessions = {row["accession"] for row in targets_result["decisions"]}
+    member_accessions = {row["accession"] for row in membership["members"] if row["accession"] != query_accession} if membership and membership["status"] == "AVAILABLE" else set()
+    cluster_coverage = []
+    for cluster in dict.fromkeys(row["cluster"] for row in targets_result["decisions"]):
+        returned = {row["accession"] for row in targets_result["decisions"] if row["cluster"] == cluster and row["reason"] != "query_self_excluded"}
+        all_cluster_references = {accession for accession, row in targets.items() if row["cluster"] == cluster}
+        cluster_members = {row["accession"] for row in membership["members"] if row["cluster"] == cluster and row["accession"] != query_accession} if membership and membership["status"] == "AVAILABLE" else set()
+        cluster_coverage.append({
+            "cluster": cluster, "returned": len(returned),
+            "selected": len(returned & {row["accession"] for row in targets_result["targets"]}),
+            "download_attempted": len(all_cluster_references & attempted),
+            "download_verified": len(all_cluster_references & (set(genomes) - {"QUERY"})),
+            "qualifying_query_comparisons": len(all_cluster_references & qualifying),
+            "excluded_query_comparisons": len(all_cluster_references & excluded),
+            "returned_unexamined": len(returned - attempted),
+            "members_discovered": len(cluster_members) if membership and membership["status"] == "AVAILABLE" else None,
+            "members_unexamined": len(cluster_members - attempted) if membership and membership["status"] == "AVAILABLE" else None,
+        })
+    interpretation["coverage"] = {
+        "mashpit_returned_unique": targets_result["returned_genomes"],
+        "returned_selected": targets_result["selected_genomes"],
+        "returned_unexamined": sorted(returned_accessions - attempted - ({query_accession} if query_accession else set())),
+        "reference_downloads_attempted": sorted(attempted),
+        "reference_downloads_verified": sorted(set(genomes) - {"QUERY"}),
+        "reference_downloads_unavailable": sorted(unavailable),
+        "query_comparisons_qualifying": sorted(qualifying),
+        "query_comparisons_excluded": sorted(excluded),
+        "downloaded_without_recorded_query_comparison": sorted((set(genomes) - {"QUERY"}) - qualifying - excluded),
+        "members_discovered": len(member_accessions) if membership and membership["status"] == "AVAILABLE" else None,
+        "members_unexamined": sorted(member_accessions - attempted) if membership and membership["status"] == "AVAILABLE" else None,
+        "member_coverage_unknown": not (membership and membership["status"] == "AVAILABLE"),
+        "query_self_excluded_from_members": bool(query_accession and membership and membership["status"] == "AVAILABLE" and any(row["accession"] == query_accession for row in membership["members"])),
+        "clusters": cluster_coverage,
+        "omission_interpretation": "Unattempted or unavailable references are resource/availability gaps, not evidence of SNP dissimilarity.",
+    }
     interpretation["query_input"] = {"type": "paired_reads" if query_reads else "assembly", "paths": query_reads if query_reads else [str(assembly)]}
     interpretation["file_checksums"] = [
         {"sample": sample, "path": path, "sha256": sha256_file(Path(path))}
@@ -233,12 +284,13 @@ def run_snp_resolution(
 def screen(
     inputs: list[Path], output_dir: Path, database_root: Path,
     organism: str | None = None, snp_resolve: bool = False, snp_expand: bool = False,
+    snp_selection_mode: str | None = None, query_accession: str | None = None,
 ) -> dict:
     output_dir.mkdir(parents=True, exist_ok=False)
     commands: list[list[str]] = []
     assembly: Path | None = None
     query_reads: list[str] | None = None
-    snp_resolve = snp_resolve or snp_expand
+    snp_resolve = snp_resolve or snp_expand or snp_selection_mode is not None
     database_metadata = None
     result: dict[str, Any] = {
         "schema_version": "1.0.0",
@@ -247,6 +299,9 @@ def screen(
         "warnings": [],
         "requested_organism": organism,
     }
+    if query_accession is None and re.fullmatch(r"GC[AF]_\d+\.\d+", result["sample"]):
+        query_accession = result["sample"]
+    result["query_accession_excluded"] = query_accession
     try:
         detected = inspect(inputs)
         result["input_type"] = detected["input_type"]
@@ -337,6 +392,7 @@ def screen(
             load_json(CONFIG_DIR / "workflow.json"),
             load_json(CONFIG_DIR / "snp-resolution-policy.json"),
             output_dir / "similarity_distribution",
+            snp_selection_mode, query_accession,
         )
         result["similarity_distribution"] = diagnostics
         result["warnings"].extend(diagnostics.get("warnings", []))
@@ -350,7 +406,7 @@ def screen(
                 snp_outcome = run_snp_resolution(
                     Path(mashpit_run["output_directory"]), assembly,
                     parsed["best_candidate"]["cluster"], output_dir / "snp_resolution",
-                    database_metadata, snp_expand, query_reads,
+                    database_metadata, snp_expand, query_reads, snp_selection_mode, query_accession,
                 )
                 result["snp_resolution"] = snp_outcome["snp_resolution"]
                 commands.extend(snp_outcome["commands"])
@@ -394,6 +450,8 @@ def main() -> int:
         ),
     )
     parser.add_argument("--snp-expand", action="store_true", help="Enable SNP resolution plus bounded exploration of members from the pinned NCBI cluster release.")
+    parser.add_argument("--snp-selection-mode", choices=("adaptive", "all_returned"), help="Representative selection mode; all_returned requires budget for every unique returned representative.")
+    parser.add_argument("--query-accession", help="Known assembly accession of this query, excluded from SNP references.")
     args = parser.parse_args()
     output_dir = Path(args.output).expanduser().resolve()
     if output_dir.exists():
@@ -407,6 +465,8 @@ def main() -> int:
         args.organism,
         args.snp_resolve,
         args.snp_expand,
+        args.snp_selection_mode,
+        args.query_accession,
     )
     print(result["user_summary"])
     return 0 if result["status"].startswith("COMPLETED") else 2

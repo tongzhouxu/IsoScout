@@ -1,8 +1,9 @@
 # Cluster-member expansion and refinement feedback
 
-Workflow 1.5.0 adds `--snp-expand`, which implies `--snp-resolve`. It first
-compares the adaptive representative set, then explores additional members of
-its plausible clusters. This is opt-in because it retrieves public release
+`--snp-expand` implies `--snp-resolve`. It first compares the selected global
+representative set, then explores additional members of every cluster represented
+in that selected set, including alternative clusters beyond Mashpit's near-top
+score band. This is opt-in because it retrieves public release
 metadata and additional assemblies. Query sequences remain local.
 
 ## Pinned membership source
@@ -40,13 +41,19 @@ also have checksums in the final interpretation.
 
 The initial representative-selection policy remains in
 `config/snp-resolution-policy.json`. Additional rounds use
-`config/refinement-policy.json`:
+`config/refinement-policy.json` (version 1.1.0):
 
-- Up to 25 new references per round, with a total ceiling of 200 attempted
+- Up to 25 new references per round, with at most 100 additional reference
+  attempts after initial selection and a total ceiling of 200 attempted
   reference downloads, including the initial set and failed downloads.
 - Up to eight rounds, including the initial comparison.
-- Each batch alternates across plausible clusters, prioritizing tied nearest
-  clusters in its order. Within a cluster, accessions are ordered deterministically.
+- After each SNP comparison, qualifying SNP-nearest clusters, including all ties,
+  come first. Other selected returned clusters follow in best representative
+  rank order. Each batch alternates across this order. Within a cluster,
+  accessions are ordered deterministically. The configured `cluster_priority`
+  is `nearest_then_selected_rank`; `selected_rank_only` is a reproducible
+  alternative for a budget comparison. Neither ordering uses unmeasured member
+  similarity as evidence.
   This ordering is a reproducible sampling choice, not a similarity ranking of
   unsketched members or a tree-neighborhood search.
 - Successfully downloaded references are retained across rounds. Only new
@@ -54,14 +61,20 @@ The initial representative-selection policy remains in
 - Continue when a closer neighbor appears, the nearest set changes, clusters
   remain tied, or some query comparisons fail comparability checks.
 - Stop after two expansion rounds with an unchanged nearest set and distance,
-  or at pool exhaustion, the resource ceiling, the round limit, insufficient
+  or at pool exhaustion, the separate expansion budget, total resource ceiling,
+  the round limit, insufficient
   comparability, missing membership, or a tool failure.
   Rounds with no newly compared references do not count toward stability.
+  Stability is a sampled-set stopping rule even when whole returned clusters
+  or members remain unexamined; it is never evidence that they lack closer
+  SNP neighbors.
 
 Every round retains its requested accessions, downloads, SKA2 output, interpreted
 results, and decision. A later failure preserves earlier successful comparisons.
 The final `expansion.json` records the stop reason and the number of available
-members still unexamined (unknown when discovery was unavailable). Reaching a
+members still unexamined (unknown when discovery was unavailable). The final
+`interpretation.json` lists unexamined representative and member accessions,
+download failures, and qualifying versus excluded comparisons. Reaching a
 stable sampled neighborhood is never reported as exhaustive search or proof
 that a closer genome does not exist. Initial representative selection can already
 consume the total budget; that condition is reported before membership retrieval.

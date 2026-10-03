@@ -9,7 +9,7 @@ change candidate selection, expand retrieval, or download genomes.
 
 - `similarity_distribution/summary.json`: ranked scores and adjacent gaps,
   counts within tolerance of the best score, cluster composition, checks at
-  ranks 50/100/200, return-limit flags, and the adaptive selector's preview.
+  ranks 50/100/200, return-limit flags, and the versioned selector's preview.
 - `similarity_distribution/rank_similarity.png`: rank versus Jaccard similarity,
   with the top tolerance band and current selection preview highlighted.
 - `result.json`: the same diagnostics under `similarity_distribution`.
@@ -19,14 +19,14 @@ The JSON records source CSV checksums, sketch size, tolerance, requested return
 limit, and selection policy. Full ranked values are preserved rather than rounded
 to report precision. Counts describe unique assembly accessions. Identical
 duplicate rows are collapsed with a warning; conflicting duplicates, malformed
-scores, and missing required metadata produce a diagnostic error. Workflow 1.4.0 uses these same validated, deduplicated records in the adaptive selector.
+scores, and missing required metadata produce a diagnostic error. Workflow 1.7.0 uses these same validated, deduplicated records in the global selector.
 
 ## Interpretation
 
 The score tolerance is `tie_tolerance_hashes / hash_number`, matching
 `generate_cluster_table` in the [pinned Mashpit source](https://github.com/tongzhouxu/mashpit/blob/538d3421302fe6dd129780605b8ff5dedbf4c046c/src/mashpit/query.py).
 The actual database sketch size is required; it is never assumed to be 1000.
-This is Mashpit's sketch-resolution heuristic, not a statistical confidence
+This is an experimental descriptive sketch-resolution heuristic, not a statistical confidence
 interval, ANI estimate, or validated biological cutoff. Tiny floating-point
 roundoff at the inclusive boundary is tolerated.
 
@@ -44,16 +44,16 @@ scores are within tolerance, `may_split_near_tie` is true. A small tail gap does
 not imply that the tail belongs to the top band. Not reaching the limit does not
 establish coverage of all isolates, because the database stores representatives.
 
-The selection preview invokes the adaptive selector described in
-[snp-resolution.md](snp-resolution.md): an initial target of 50, boundary
-near-tie expansion, alternative-cluster coverage, and a hard ceiling of 200.
-The full selection audit is retained under `selection_preview.audit`. It records selected and omitted
-counts per cluster and omitted genomes within the top tolerance band. Within a
-cluster, `selection_splits_near_tie` compares the lowest selected score with the
-highest omitted score. A cluster excluded entirely remains visible in the
-cluster summary and top-band omission count. The preview is inactive when no
-candidate meets the current screening gate, and is never presented as evidence
-that references were downloaded or compared.
+The selection preview invokes the same mode and query-accession exclusion as the
+actual selector described in [snp-resolution.md](snp-resolution.md). Adaptive
+mode includes the global top 50, then uses up to 50 more returned-reference
+slots for unrepresented cluster leaders and global rank. All-returned mode
+requires enough budget for the entire unique returned set. The full audit is
+retained under `selection_preview.audit`, including each inclusion or resource
+omission. It records selected and omitted counts per cluster, unexamined whole
+clusters, and omitted near-top references. `selection_splits_near_tie` is a
+descriptive flag; neither it nor any score gap rules out a cluster at SNP level.
+The preview never asserts that a reference was downloaded or compared.
 
 Warnings propagate to the screen's overall warning status. Diagnostics errors
 and plot failures do not prevent an otherwise valid Mashpit/SNP workflow from
@@ -73,7 +73,8 @@ python3 scripts/analyze_similarity_distribution.py \
 
 It reads the original database settings and query flags from `mashpit_run.json`,
 and previews the current repository's SNP selection policy (recorded in the new
-summary). It does not rewrite the original result, report, or provenance. A new
+summary). Pass `--selection-mode all_returned` and `--query-accession` to match
+a run using those options. It does not rewrite the original result, report, or provenance. A new
 container build or a checkout with the updated scripts is needed; previously
 published images do not acquire this feature automatically.
 

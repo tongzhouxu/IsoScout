@@ -1,8 +1,11 @@
 {
-  "policy_version": "2.0.0",
+  "policy_version": "3.0.0",
+  "strategy": "global-ranked-cluster-coverage-v1",
+  "default_mode": "adaptive",
+  "coverage_strategy": "unrepresented_cluster_leaders_then_global_rank",
+  "initial_target_genomes": 50,
+  "max_returned_representatives": 100,
   "max_total_genomes": 200,
   "download_attempts": 3,
-  "download_retry_delay_seconds": 5,
-  "strategy": "adaptive-boundary-v1",
-  "initial_target_genomes": 50
+  "download_retry_delay_seconds": 5
 }

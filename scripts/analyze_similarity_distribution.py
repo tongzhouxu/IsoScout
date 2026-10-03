@@ -26,6 +26,7 @@ from mashpit_similarity import read_scores, within_tolerance, recorded_query_con
 def analyze(
     mashpit_output_dir: Path, database: dict[str, Any], profile: dict[str, Any],
     selection_policy: dict[str, Any], rank_checkpoints: list[int],
+    selection_mode: str | None = None, query_accession: str | None = None,
 ) -> dict[str, Any]:
     source = locate_representative_file(mashpit_output_dir)
     candidate_source = locate_candidate_file(mashpit_output_dir)
@@ -48,10 +49,10 @@ def analyze(
             f"Collapsed {duplicate_rows} duplicate accession rows for diagnostics and selection."
         )
     candidates = load_candidates(candidate_source)
-    relevant = ([candidates[0]["cluster"]] + [c["cluster"] for c in candidates[1:] if c["near_top"]]) if candidates else []
     eligible = bool(candidates) and candidates[0]["score"] >= profile["threshold"]
-    selected = select_targets(mashpit_output_dir, selection_policy, database, profile) if eligible else {"targets": []}
-    relevant = selected.get("relevant_clusters", relevant)
+    selected = select_targets(mashpit_output_dir, selection_policy, database, profile,
+                              mode=selection_mode, query_accession=query_accession)
+    relevant = selected["selected_clusters"]
     warnings.extend(selected.get("warnings", []))
     selected_accessions = {item["accession"] for item in selected["targets"]}
     best = rows[0]["score"] if rows else None
@@ -73,7 +74,7 @@ def analyze(
             "cluster": cluster, "returned_genomes": len(members),
             "best_score": members[0]["score"], "lowest_score": members[-1]["score"],
             "within_top_tolerance_count": sum(row["within_top_tolerance"] for row in members),
-            "relevant_to_current_policy": cluster in relevant,
+            "represented_in_selection_preview": cluster in relevant,
             "selected_genomes": len(kept), "omitted_genomes": len(omitted),
             "selected_to_omitted_gap": gap,
             "selection_splits_near_tie": within_tolerance(gap, tolerance) if gap is not None else False,
@@ -107,14 +108,14 @@ def analyze(
     if eligible and any(cluster["selection_splits_near_tie"] for cluster in clusters):
         warnings.append("The current selection policy splits a near-tie within at least one cluster.")
     return {
-        "schema_version": "1.0.0", "profile": "distribution-v1",
+        "schema_version": "2.0.0", "profile": "distribution-v2",
         "status": "WARN" if warnings else ("PASS" if rows else "EMPTY"),
         "scope": "Returned database representatives only; not all isolates or a strain assignment.",
         "sources": [{"path": str(path), "sha256": sha256_file(path)} for path in (source, candidate_source)],
         "tolerance": {
             "hash_number": hash_number, "tie_tolerance_hashes": tolerance_hashes,
             "score_tolerance": tolerance, "formula": "tie_tolerance_hashes / hash_number",
-            "interpretation": "Mashpit sketch-resolution heuristic; not a confidence interval or biological cutoff.",
+            "interpretation": "Experimental descriptive Mashpit sketch-resolution heuristic; not a confidence interval or biological cutoff or cluster eligibility gate.",
         },
         "returned_genomes": len(rows), "duplicate_rows": duplicate_rows,
         "best_score": best, "lowest_score": rows[-1]["score"] if rows else None,
@@ -129,8 +130,11 @@ def analyze(
         "selection_preview": {
             "scope": "Current policy if SNP resolution is requested; not a download or comparison result.",
             "eligible": eligible, "policy": selection_policy,
+            "mode": selected["mode"],
             "audit": selected,
             "selected_genomes": len(selected_accessions),
+            "unexamined_returned_representatives": selected["unexamined_returned_representatives"],
+            "unexamined_clusters": selected["unexamined_clusters"],
             "omitted_within_top_tolerance_count": omitted_top if eligible else None,
         },
         "rank_checkpoints": checkpoints, "clusters": clusters, "ranked": rows, "warnings": warnings,
@@ -184,11 +188,13 @@ def render_plot(result: dict[str, Any], path: Path) -> dict[str, Any]:
 def run_diagnostics(
     mashpit_output_dir: Path, database: dict[str, Any], workflow: dict[str, Any],
     selection_policy: dict[str, Any], output_dir: Path,
+    selection_mode: str | None = None, query_accession: str | None = None,
 ) -> dict[str, Any]:
     try:
         result = analyze(
             mashpit_output_dir, database, workflow["mashpit"], selection_policy,
             workflow["similarity_diagnostics"]["rank_checkpoints"],
+            selection_mode, query_accession,
         )
         result["plot"] = render_plot(result, output_dir / "rank_similarity.png")
         if result["plot"]["status"] == "FAIL":
@@ -204,6 +210,8 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--mashpit-output-dir", required=True)
     parser.add_argument("--output-dir", required=True)
+    parser.add_argument("--selection-mode", choices=("adaptive", "all_returned"))
+    parser.add_argument("--query-accession")
     args = parser.parse_args()
     source = Path(args.mashpit_output_dir).expanduser().resolve()
     output = Path(args.output_dir).expanduser().resolve()
@@ -213,7 +221,8 @@ def main() -> int:
     database, profile = recorded_query_context(source)
     workflow = load_json(CONFIG_DIR / "workflow.json")
     workflow["mashpit"] = profile
-    result = run_diagnostics(source, database, workflow, load_json(CONFIG_DIR / "snp-resolution-policy.json"), output)
+    result = run_diagnostics(source, database, workflow, load_json(CONFIG_DIR / "snp-resolution-policy.json"), output,
+                             args.selection_mode, args.query_accession)
     print(f"Similarity diagnostics: {result['status']}; {output / 'summary.json'}")
     return 2 if result["status"] == "ERROR" else 0
 

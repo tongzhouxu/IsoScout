@@ -4,6 +4,8 @@ All notable changes to this project are documented here. Format loosely follows 
 
 ## [Unreleased]
 
+- Workflow 1.7.0 / selection policy 3.0.0 / refinement policy 1.1.0 removes the sketch-tolerance cluster gate. The global first 50 nonself unique returned references are guaranteed when eligible and budgeted; adaptive mode uses up to 100 returned references with explicit cluster-leader coverage, and all-returned mode requires enough budget for every returned reference. Expansion now considers members of every selected cluster. Previews, actual coverage, reports, and provenance distinguish resource omissions, failed downloads, comparability exclusions, and nearest ties. Frozen v2 policy and a three-policy comparison harness preserve pilot reproducibility. No biological accuracy claim.
+
 - Workflow 1.6.0 / skill 1.2.0 adds `package_database_release.py` to create new database bundles with exact-release metadata and cluster membership, verified against every representative and recorded with checksums. Expansion uses validated bundled tables offline, while existing `databases-v1` packages retain exact-release download support. Corrupt bundles fail closed.
 
 - Built, verified, and published all five [`databases-v2`](https://github.com/tongzhouxu/IsoScout/releases/tag/databases-v2) packages with the exact NCBI Pathogen Detection membership and metadata tables (Salmonella `PDG000000002.3864`, E. coli/Shigella `PDG000000004.5775`, Listeria `PDG000000001.4519`, Campylobacter `PDG000000003.2682`, Cronobacter `PDG000000043.415`). Archive checksums, database integrity, and offline member discovery passed. The updated container remains unpublished.

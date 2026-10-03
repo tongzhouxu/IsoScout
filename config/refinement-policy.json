@@ -1,11 +1,13 @@
 {
-  "policy_version": "1.0.1",
+  "policy_version": "1.1.0",
   "comparability": {
     "min_shared_split_kmers": 100000,
     "max_mismatch_proportion": 0.1
   },
   "expansion": {
+    "cluster_priority": "nearest_then_selected_rank",
     "batch_size": 25,
+    "max_additional_reference_attempts": 100,
     "max_rounds": 8,
     "max_total_genomes": 200,
     "stable_rounds_to_stop": 2,

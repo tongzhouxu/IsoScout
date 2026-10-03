@@ -1,10 +1,10 @@
-# SNP resolution: selection policy 2.0.0
+# SNP resolution: selection policy 3.0.0
 
-Optional, opt-in refinement of a Mashpit candidate using ska2 pairwise SNP distances. Governed by `config/snp-resolution-policy.json` (selection thresholds) and the `snp_resolution` block of `config/workflow.json` (fixed ska2 command profile). Enable with `--snp-resolve`.
+Optional, opt-in refinement of a Mashpit candidate using ska2 pairwise SNP distances. Governed by `config/snp-resolution-policy.json` (versioned resource policy) and the `snp_resolution` block of `config/workflow.json` (fixed ska2 command profile). Enable with `--snp-resolve`.
 
 ## Why this exists
 
-Mashpit's MinHash similarity is a coarse, sketch-resolution screen. A single unambiguous top cluster at Mash resolution is not proof of SNP-level closeness, and two near-tied clusters cannot be told apart by Mash alone. SNP resolution runs ska2 (split k-mer analysis) between the query assembly (or cleaned paired reads) and reference genomes from the relevant cluster(s) to get an actual pairwise SNP count.
+Mashpit's MinHash similarity is a coarse, sketch-resolution screen. A single unambiguous top cluster at Mash resolution is not proof of SNP-level closeness, and two near-tied clusters cannot be told apart by Mash alone. SNP resolution runs ska2 (split k-mer analysis) between the query assembly (or cleaned paired reads) and returned reference genomes across clusters to get an actual pairwise SNP count.
 
 ## When it runs
 
@@ -12,59 +12,68 @@ Whenever `--snp-resolve` is set and Mashpit returned a candidate (`mashpit_resul
 
 ## Network dependency
 
-Unlike the rest of the screen, this step is **not** fully local. A Mashpit database only retains sourmash signatures, not the representative assemblies (they are sketched and discarded during `mashpit build`), so resolving SNPs requires re-downloading the relevant representative genomes from NCBI via the pinned `datasets` CLI. This is why the step is opt-in rather than automatic: default screens keep sensitive query data fully local, and `--snp-resolve` is an explicit choice to reach out to NCBI for public reference genomes (the query sequence itself is never uploaded).
+Unlike the rest of the screen, this step is **not** fully local. A Mashpit database only retains sourmash signatures, not the representative assemblies (they are sketched and discarded during `mashpit build`), so resolving SNPs requires re-downloading selected representative genomes from NCBI via the pinned `datasets` CLI. This is why the step is opt-in rather than automatic: default screens keep sensitive query data fully local, and `--snp-resolve` is an explicit choice to reach out to NCBI for public reference genomes (the query sequence itself is never uploaded).
 
-## Target selection
+## Target selection and budgets
 
-The default policy is `adaptive-boundary-v1`, version `2.0.0`. It starts with
-50 references and has a hard ceiling of 200 references (excluding the query).
-These are computational defaults awaiting biological benchmarking, not
-validated strain-assignment cutoffs. The earlier per-cluster cap is removed.
+The default `global-ranked-cluster-coverage-v1` policy (3.0.0) uses an initial
+**global** target of 50, a maximum of 100 returned representatives in adaptive
+mode, at most 100 additional expansion attempts, and a total ceiling of 200
+attempted reference downloads including later member expansion. Mashpit still
+returns at most 200 representatives by default.
+These are separate recorded computational budgets, not biological cutoffs.
 
-1. Validate scores and deduplicate exact assembly accessions. Distinct accessions
-   remain distinct even when scores are identical. Conflicting records for the
-   same accession fail selection rather than choosing one silently.
-2. Retain the top cluster, upstream `near_top` clusters, and clusters with a
-   representative within the inclusive top score tolerance. The tolerance uses
-   the actual database hash count and recorded query's hash tolerance. Candidate
-   clusters with no available returned representative are reported explicitly.
-3. Sort eligible representatives by decreasing similarity, then accession. Start
-   with up to 50, extending the ranked prefix as needed to include the leading
-   representative of every plausible cluster.
-4. Extend the boundary while each adjacent score gap is at most the Mashpit
-   tolerance. Stop at a larger gap or the end of the returned eligible pool.
-   This boundary expansion intentionally follows adjacent near-ties; it can span
-   more than one tolerance from the best score. The diagnostics' top-band count
-   still compares every score directly with the best score.
-5. If the desired set exceeds 200, reserve cluster leaders first, then prioritize
-   higher score bands. Share slots round-robin across clusters within a band cut
-   by the ceiling. Cluster order is deterministic (leader score, then cluster
-   identifier), as is within-cluster order (score, then accession). If even one
-   leader per cluster cannot fit, list the omitted clusters explicitly. Never
-   present a resource-driven tie break as biological evidence.
+1. Validate scores and collapse identical accession rows. Conflicting rows fail.
+   Sort all unique returned representatives by descending Mashpit score, then
+   accession. Supply `--query-accession` when the query's assembly accession is
+   known; an input filename that is itself a versioned `GCA_`/`GCF_` accession
+   is also recognized. It is excluded before counting the first 50 and from
+   later member expansion. Sequence-identical
+   records under another accession cannot be detected from Mashpit scores alone.
+2. If Mashpit's top candidate passes its configured screening gate, include the
+   first 50 valid, nonself representatives **regardless of cluster or score
+   gap**. With fewer than 50, include all available. The sketch tolerance
+   (`tie_tolerance_hashes / hash_number`) and upstream `near_top` labels remain
+   annotations only; neither excludes a SNP reference.
+3. Up to the adaptive returned-reference cap of 100, first include the highest
+   ranked representative of each cluster absent from the initial set. Then fill
+   any remaining slots in global rank order. Cluster leaders are visited in
+   global rank order. This is a deterministic coverage strategy, not a claim
+   that a lower scored cluster is biologically implausible.
+   The versioned `coverage_strategy` can instead be set to `global_rank_only`
+   for a rank-only budget comparison. Both strategies preserve the first 50;
+   neither uses a score-gap exclusion.
+4. `--snp-selection-mode all_returned` requests every valid unique returned
+   representative as a benchmarking baseline. It requires the total reference
+   budget to fit the entire returned set; otherwise selection is `SKIPPED` with
+   `all_returned_budget_insufficient` decisions. It never silently turns into a
+   partial baseline. With 200 returned references and the default 200-attempt
+   ceiling, it attempts all 200, leaving no member-expansion capacity.
 
-`snp_resolution/targets.json` records policy and query settings, source checksums,
-all selected accessions, the desired count before capping, the boundary gap,
-missing clusters, and an inclusion/exclusion reason for every unique accession.
-Duplicate input rows have separate `duplicate_accession` decisions pointing to
-retained source records. Other reason codes distinguish initial ranked targets,
-cluster coverage, near-tie expansion, the hard ceiling, scores beyond the boundary,
-and clusters outside the plausible set.
+`--snp-resolve` uses adaptive mode by default. `--snp-expand` additionally
+explores exact-release members of clusters represented in the selected returned
+set. To change budgets, edit a copy of the versioned policy and run the
+standalone selector, or release a new audited workflow configuration. The
+screen command itself uses the checked-in policy. No score-distribution
+heuristic changes eligibility or budgets; exploratory plots and near-tie flags
+must not be interpreted as evidence that omitted clusters lack closer SNP
+neighbors.
 
-`desired_set_complete` refers only to this policy's desired set of returned
-representatives. A separate retrieval-limit flag warns when additional candidates
-may be unobserved, even if every desired returned genome fits. The initial selector does not re-query Mashpit. Optional `--snp-expand` adds
-cluster-member exploration after this initial stage; see [cluster-expansion.md](cluster-expansion.md).
-No optimal count or nearest-neighbor guarantee is claimed.
+`snp_resolution/targets.json` includes the policy and recorded Mashpit query
+settings, source checksums, mode, all selected accessions, each unique returned
+reference's global rank and inclusion/omission reason, query-self exclusion,
+duplicate-row decisions, selected and unexamined clusters, and explicit budgets.
+`returned_reference_budget` means a resource omission, never SNP dissimilarity.
+The return-limit flag means additional matches *may* be unobserved. The preview
+in `similarity_distribution/summary.json` calls the same selector with the same
+mode and query accession; it predicts requests, not downloads or comparisons.
 
-The similarity diagnostics preview the same selector before downloading. The SNP
-result retains the selection audit and lists selected references that could not
-be downloaded, so selection coverage and actual comparison coverage remain visible.
-
-For standalone selection, use the existing `select_snp_targets.py` CLI with
-`--mashpit-output-dir`, `--policy`, and `--output`. The input directory must include
-`mashpit_run.json` from the original screen, which supplies the recorded query
-flags and database settings. Version 1 policies are rejected explicitly.
+For standalone selection, use `select_snp_targets.py --mashpit-output-dir ...
+--policy config/snp-resolution-policy.json --mode adaptive|all_returned
+--output ...` and optionally `--query-accession`. The saved Mashpit directory
+must contain `mashpit_run.json`; no current settings are guessed. Policy v2 is
+retained only in `frozen_select_snp_targets_v2.py` for comparisons and is not
+used by the current screen.
 
 ## Genome retrieval and SNP distance
 
@@ -83,6 +92,13 @@ raw distances and ratios, not statistical confidence. Zero observed differences
 are not described as an exact whole-genome match. See
 [cluster-expansion.md](cluster-expansion.md) for comparability settings and ties.
 
+The final `coverage` block lists every returned representative left unexamined,
+every attempted, verified, and unavailable download, every qualifying and
+comparability-excluded query comparison, and discovered but unexamined members.
+It also flags when member coverage is unknown because membership was not read.
+The report separates Mashpit-displayed alternatives from alternatives actually
+tested by SKA2. No stable within-cluster result rules out an untested cluster.
+
 `render_snp_tree.py` renders `newick_tree` to `snp_resolution/tree.png` with `QUERY` highlighted in red and bold (via `phytreeviz`, already pulled in transitively by the pinned mashpit commit's own dependencies — no new container pin needed). Rendering is best-effort: a failure only sets `tree_image.status` to `FAIL` with the error message, it never fails SNP resolution or the underlying Mash screen. `generate_report.py` embeds this image in `report.md` when available, falling back to the raw Newick text otherwise.
 
 `generate_report.py` renders all of this into `report.md`, written alongside `result.json` on every run (not just `--snp-resolve` ones): organism determination, the Mashpit candidate table, the ska2 cluster/genome tables and confidence statement, and the Newick tree, in plain language for a reader who doesn't want to open JSON.
@@ -90,5 +106,5 @@ are not described as an exact whole-genome match. See
 ## Limitations
 
 - ska2 pairwise SNP distance is itself a screening refinement, not a validated outbreak-confirmation pipeline (unlike, e.g., CFSAN SNP Pipeline or an accredited cgMLST scheme). Always recommend a validated, organism-appropriate high-resolution comparison for actual outbreak confirmation, exactly as for the Mash result.
-- `--snp-resolve` compares selected representatives. `--snp-expand` can add available members of plausible clusters from the exact release, subject to explicit budgets and stopping rules. Neither mode searches all public genomes or guarantees the nearest isolate globally.
+- `--snp-resolve` compares selected representatives. `--snp-expand` can add available members of selected clusters from the exact release, subject to explicit budgets and stopping rules. Neither mode searches all public genomes or guarantees the nearest isolate globally.
 - A failed or partial download (fewer than two usable genomes, including the query) skips SNP resolution with a warning; it does not fail the underlying Mash screen, which remains authoritative on its own.

@@ -16,7 +16,7 @@ assemblies, and run provenance are retained.
 
 Optional `--snp-resolve` (see [references/snp-resolution.md](snp-resolution.md)) refines a Mashpit candidate with ska2 pairwise SNP distances against representative genomes re-downloaded from NCBI. It is a screening refinement bounded by whatever representatives the underlying Mashpit database happened to select, not a validated outbreak-confirmation pipeline, and it introduces a network dependency the rest of this workflow does not otherwise have.
 
-`--snp-expand` extends beyond representatives within plausible clusters, using exact-release membership and bounded rounds. Metadata gaps, absent assemblies, failed downloads, truncated searches, and unexamined members remain explicit. It cannot assign universal strain identity or establish that no closer unexamined isolate exists. Direct-read SKA2 refinement is supported, but the initial Mashpit screen still requires an assembly. See [benchmarking.md](benchmarking.md) for the limits of software verification versus biological validation.
+`--snp-expand` extends beyond representatives within selected returned clusters, using exact-release membership and bounded rounds. Metadata gaps, absent assemblies, failed downloads, truncated searches, and unexamined members remain explicit. It cannot assign universal strain identity or establish that no closer unexamined isolate exists. Direct-read SKA2 refinement is supported, but the initial Mashpit screen still requires an assembly. See [benchmarking.md](benchmarking.md) for the limits of software verification versus biological validation.
 
 The legacy `databases-v1` packages do not bundle full membership tables;
 their expansion still depends on NCBI retaining the matching release. The
