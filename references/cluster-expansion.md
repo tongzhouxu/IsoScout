@@ -37,47 +37,68 @@ without members, are recorded. Membership provenance includes URLs, the release,
 retrieval timestamp when applicable, sizes, and SHA-256 checksums. Retrieved query/reference files
 also have checksums in the final interpretation.
 
-## Bounded rounds
+## Focused, bounded rounds (policy 2.0.0)
 
-The initial representative-selection policy remains in
-`config/snp-resolution-policy.json`. Additional rounds use
-`config/refinement-policy.json` (version 1.1.0):
+The initial representative selector remains policy 3.0.1: it includes the
+global top 50 unique nonself returned references, then gives other returned
+clusters coverage up to its separate 100-reference adaptive cap. The sketch
+score tolerance never excludes a cluster from SNP refinement. Mashpit's default
+return limit remains 200. Additional rounds use `config/refinement-policy.json`.
 
-- Up to 25 new references per round, with at most 100 additional reference
-  attempts after initial selection and a total ceiling of 200 attempted
-  reference downloads, including the initial set and failed downloads.
-- Up to eight rounds, including the initial comparison.
-- After each SNP comparison, qualifying SNP-nearest clusters, including all ties,
-  come first. Other selected returned clusters follow in best representative
-  rank order. Each batch alternates across this order. Within a cluster,
-  accessions are ordered deterministically. The configured `cluster_priority`
-  is `nearest_then_selected_rank`; `selected_rank_only` is a reproducible
-  alternative for a budget comparison. Neither ordering uses unmeasured member
-  similarity as evidence.
-  This ordering is a reproducible sampling choice, not a similarity ranking of
-  unsketched members or a tree-neighborhood search.
-- Successfully downloaded references are retained across rounds. Only new
-  accessions are downloaded; each SKA2 run compares the cumulative available set.
-- Continue when a closer neighbor appears, the nearest set changes, clusters
-  remain tied, or some query comparisons fail comparability checks.
-- Stop after two expansion rounds with an unchanged nearest set and distance,
-  or at pool exhaustion, the separate expansion budget, total resource ceiling,
-  the round limit, insufficient
-  comparability, missing membership, or a tool failure.
-  Rounds with no newly compared references do not count toward stability.
-  Stability is a sampled-set stopping rule even when whole returned clusters
-  or members remain unexamined; it is never evidence that they lack closer
-  SNP neighbors.
+The default `focused_balanced_v2` allocation retains the existing limits:
+25 new references per round, at most 100 additional attempts, 200 total
+reference attempts including the initial set and failed downloads, and at
+most eight rounds including the initial comparison. A local accession's sort
+order is only a deterministic sampling order, **not** a similarity ranking.
 
-Every round retains its requested accessions, downloads, SKA2 output, interpreted
-results, and decision. A later failure preserves earlier successful comparisons.
-The final `expansion.json` records the stop reason and the number of available
-members still unexamined (unknown when discovery was unavailable). The final
-`interpretation.json` lists unexamined representative and member accessions,
-download failures, and qualifying versus excluded comparisons. Reaching a
-stable sampled neighborhood is never reported as exhaustive search or proof
-that a closer genome does not exist. Initial representative selection can already
-consume the total budget; that condition is reported before membership retrieval.
+After every comparison, all clusters tied at the minimum qualifying SNP
+distance become the leading set. The scheduler normally aims for 75% of a
+batch in leading clusters and reserves at least two slots for alternative
+selected clusters; one of those slots can favor a cluster with no qualifying
+comparison. The remaining alternative slots rotate through selected clusters
+using a cursor retained between rounds, so the first clusters cannot repeatedly
+consume all alternative capacity. Tied leaders also rotate within their lane.
+If the finite leading pool can fit in the remaining attempts and rounds while
+preserving the alternative reserve, the scheduler increases focus enough to
+complete it. Unused focus or alternative capacity transfers to the other lane.
+Priorities are recalculated from qualifying SNP evidence after each round.
+No ground-truth cluster or known nearest accession enters scheduling.
+
+The 75% share, two alternative slots, one unresolved-priority slot, and 20
+new qualifying comparisons per leading cluster are **experimental computational
+settings**. They are not validated biological thresholds or evidence that
+unexamined clusters are distant. The versioned policy records them and every
+round's `allocation` lists chosen accessions, lane, leading and unresolved
+clusters, available capacity, cursors, and rationale. Downloads, comparisons,
+exclusions, and newly qualifying references are recorded separately.
+
+A sampled-stability stop requires two unchanged rounds **after** every leading
+cluster has either at least 20 qualifying additional comparisons or no
+unexamined available member, and after any feasible finite leading pool has
+been completed. A round with no newly qualifying comparisons does not count
+as stable. A single comparability exclusion in an otherwise comparable cluster
+is retained but does not itself force more expansion. A cluster with no
+qualifying comparison remains unresolved. If it has untried available members,
+stability is blocked and alternative exploration continues. If its finite pool
+is exhausted without a qualifying comparison, the unresolved status remains
+in the report; it is never treated as SNP-distant.
+
+Other stop reasons distinguish finite-pool exhaustion, insufficient evidence
+at pool exhaustion, sampled stability, missing or conflicting membership,
+round/tool failure, the additional-attempt budget, and the total ceiling.
+`expansion.json` records remaining per-cluster and overall coverage, including
+where budget or round limits prevented the focused minimum or exploration of
+unresolved alternatives. Stability is only within the sampled set; neither
+cluster concordance nor a stable nearest reference proves the globally nearest
+genome was found.
+
+## Explicit policy files
+
+`--refinement-policy PATH` can select another versioned policy file for a
+screen. Its expansion and comparability settings are applied together. The
+selected file's path, version, content, and SHA-256 are recorded in the
+expansion audit and provenance. The checked-in default keeps the limits above;
+any different resource ceiling must be stated in the supplied policy file.
 
 ## Comparability and ties
 
@@ -88,7 +109,7 @@ or strain-assignment cutoffs. SKA2's mismatch proportion measures missing
 split-kmer contexts, not nucleotide mismatch rate or ANI. See the pinned
 [SKA2 implementation](https://github.com/bacpop/ska.rust/blob/v0.5.1/src/merge_ska_array.rs).
 
-Failed comparisons remain in `excluded_comparisons` but cannot win nearest-neighbor
+Failed comparisons remain in `excluded_comparisons` with their reasons but cannot win nearest-neighbor
 ranking. No qualifying comparison yields `INSUFFICIENT_DATA`. A unique nearest
 reference yields `COMPARED`; equally nearest references yield `AMBIGUOUS`, with
 all nearest accessions and clusters retained. A cross-cluster tie has no singular

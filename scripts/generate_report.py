@@ -145,6 +145,29 @@ def _snp_section(result: dict[str, Any]) -> list[str]:
             "", "[Expansion decisions and pinned membership provenance](snp_resolution/expansion.json)", "",
             "A stable sampled neighborhood does not establish that every closer genome has been found.", "",
         ])
+        uncertainty = expansion.get("remaining_uncertainty") or {}
+        if uncertainty:
+            lines.append(
+                f"Remaining uncertainty: {uncertainty.get('unexamined_additional_pool') if uncertainty.get('unexamined_additional_pool') is not None else 'unknown'} "
+                f"additional references unexamined; {len(uncertainty.get('unresolved_selected_clusters') or [])} "
+                "selected clusters without qualifying SNP evidence; "
+                f"{len(uncertainty.get('leading_clusters_below_focused_minimum') or [])} leading clusters below the configured focused minimum. "
+                f"Budget or round limit prevented required exploration: {'yes' if uncertainty.get('budget_or_round_limit_prevented_required_exploration') else 'no'}."
+            )
+            lines.append("")
+        lines.extend(["Expansion decisions after each comparison:", "",
+                      "| Round | Leading SNP clusters | Next leading requests | Next alternative requests | New qualifying comparisons | Decision |",
+                      "|---:|---|---:|---:|---:|---|"])
+        for round_record in expansion["rounds"]:
+            allocation = round_record.get("allocation") or {}
+            chosen = allocation.get("chosen") or []
+            leading = sum(row.get("lane") in {"leading_snp_cluster", "unused_alternative_capacity_to_leader"} for row in chosen)
+            alternatives = len(chosen) - leading
+            feedback = round_record.get("feedback") or {}
+            clusters = ", ".join(allocation.get("leading_clusters", [])) or "None recorded"
+            lines.append(f"| {round_record['round']} | {clusters} | {leading} | {alternatives} | "
+                         f"{len(feedback.get('new_qualifying_comparisons', []))} | {feedback.get('reason', 'unknown')} |")
+        lines.extend(["", "The allocation audit records every requested accession, lane, cursor, and rationale in `snp_resolution/expansion.json`.", ""])
     query_input = snp.get("query_input", {})
     if query_input:
         lines.extend(["Query used for SKA2: **" + ("cleaned paired-end reads" if query_input["type"] == "paired_reads" else "assembly") + "**.", ""])
@@ -175,6 +198,15 @@ def _snp_section(result: dict[str, Any]) -> list[str]:
                 row = by_cluster.get(cluster, {})
                 lines.append(f"| {cluster} | {row.get('returned', 0)} | {row.get('selected', 0)} | {row.get('qualifying_query_comparisons', 0)} | {row.get('returned_unexamined', 0)} |")
             lines.append("")
+        lines.extend(["SNP comparison coverage by returned cluster (including any explored members):", "",
+                      "| Cluster | Attempted | Downloaded | Qualifying | Excluded | Returned unexamined | Members unexamined |",
+                      "|---|---:|---:|---:|---:|---:|---:|"])
+        for row in coverage.get("clusters", []):
+            members_left = row.get("members_unexamined")
+            lines.append(f"| {row['cluster']} | {row['download_attempted']} | {row['download_verified']} | "
+                         f"{row['qualifying_query_comparisons']} | {row['excluded_query_comparisons']} | "
+                         f"{row['returned_unexamined']} | {members_left if members_left is not None else 'Unknown'} |")
+        lines.append("")
     if status == "SKIPPED":
         lines.append(f"Skipped: {snp.get('reason', 'no reason recorded')}")
         return lines
@@ -184,6 +216,16 @@ def _snp_section(result: dict[str, Any]) -> list[str]:
     if status not in {"COMPARED", "AMBIGUOUS", "RESOLVED"}:
         lines.append(f"Status: {status}")
         return lines
+
+    mash_best = (result.get("mashpit_result") or {}).get("best_candidate") or {}
+    nearest_clusters = snp.get("nearest_clusters", [])
+    agreement = snp.get("agrees_with_mash_top_candidate")
+    agreement_text = "agrees" if agreement is True else ("disagrees" if agreement is False else "unresolved")
+    lines.append(f"**Cluster-label result among examined qualifying references:** nearest SNP cluster(s): "
+                 f"{', '.join(nearest_clusters) if nearest_clusters else 'none'}; Mashpit top cluster: "
+                 f"{mash_best.get('cluster', 'unknown')}; comparison: {agreement_text}. "
+                 "This is not agreement with an independent cluster label or proof of the globally nearest genome.")
+    lines.append("")
 
     lines.append(
         "SKA2 counts differences in comparable split-kmer contexts. Ranking includes only references "

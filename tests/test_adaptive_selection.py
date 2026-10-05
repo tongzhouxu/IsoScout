@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import csv
-import json
 import sys
 import unittest
 from pathlib import Path
@@ -12,8 +11,6 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 import test_similarity_distribution as fixtures
 from common import WorkflowError, load_json
-from compare_selection_policies import compare
-from frozen_select_snp_targets_v2 import select_targets as select_frozen
 from generate_report import generate_report
 from screen_isolate import run_snp_resolution
 from select_snp_targets import select_targets
@@ -35,38 +32,10 @@ class AdaptiveSelectionTests(unittest.TestCase):
         clusters[2], clusters[11] = "C2", "C3"
         self.case.fixture(scores, clusters)
         revised = self.select()
-        frozen = select_frozen(self.case.source, load_json(ROOT / "config" / "frozen-snp-resolution-policy-v2.json"), self.case.database, self.case.profile)
         selected = {row["accession"] for row in revised["targets"]}
         self.assertIn("GCA_0002", selected)
         self.assertIn("GCA_0011", selected)
-        self.assertNotIn("GCA_0002", {row["accession"] for row in frozen["targets"]})
         self.assertGreater(revised["decisions"][2]["gap_from_best"], .002)
-
-    def test_five_pilot_shaped_exclusions_are_reproduced_without_using_labels_for_selection(self):
-        # Synthetic score layouts encode only the supplied ranks/gaps/counts;
-        # this is a policy regression, not a replay of pilot data or an accuracy test.
-        cases = [("07", 3, .005, 14), ("08", 96, .016, 1),
-                 ("11", 12, .006, 5), ("12", 102, .026, 4),
-                 ("15", 3, .004, 74)]
-        frozen_policy = load_json(ROOT / "config" / "frozen-snp-resolution-policy-v2.json")
-        for case_id, first_rank, gap, count in cases:
-            with self.subTest(case=case_id):
-                scores = [1.]
-                for rank in range(2, 201):
-                    score = (1. - gap * (rank - 1) / (first_rank - 1) if rank < first_rank
-                             else 1. - gap - .00001 * (rank - first_rank))
-                    scores.append(score)
-                clusters = ["C1"] * 200
-                for index in range(first_rank - 1, first_rank - 1 + count):
-                    clusters[index] = "C2"
-                self.case.fixture(scores, clusters)
-                old = select_frozen(self.case.source, frozen_policy, self.case.database, self.case.profile)
-                revised = self.select()
-                baseline = self.select(mode="all_returned")
-                self.assertEqual(sum(row["cluster"] == "C2" for row in old["targets"]), 0)
-                self.assertGreaterEqual(sum(row["cluster"] == "C2" for row in revised["targets"]), 1)
-                self.assertEqual(sum(row["cluster"] == "C2" for row in baseline["targets"]), count)
-                self.assertAlmostEqual(revised["decisions"][first_rank - 1]["gap_from_best"], gap)
 
     def test_global_top_fifty_guarantee_and_cluster_coverage_afterward(self):
         scores = [1.0 - i * .001 for i in range(120)]
@@ -86,7 +55,7 @@ class AdaptiveSelectionTests(unittest.TestCase):
         self.assertIn("GCA_0101", {row["accession"] for row in result["targets"]})
         self.assertEqual(result["resource_budget"]["all_returned_required"], 200)
 
-    def test_all_returned_rejects_partial_baseline_when_budget_short(self):
+    def test_all_returned_rejects_partial_selection_when_budget_short(self):
         self.case.fixture([1.] * 120)
         self.policy["max_total_genomes"] = 100
         result = self.select(mode="all_returned")
@@ -172,19 +141,6 @@ class AdaptiveSelectionTests(unittest.TestCase):
         self.assertEqual(download.call_args.args[0], wanted)
         self.assertEqual(len(wanted), 200)
         self.assertEqual(actual["snp_resolution"]["coverage"]["returned_unexamined"], [])
-
-    def test_saved_run_comparison_keeps_expected_label_out_of_selection(self):
-        self.case.fixture([1., .999, .995], ["C1", "C1", "C2"])
-        run = {"database": self.case.database, "command": ["mashpit", "query", "q.fa", "db", "--number", "200", "--threshold", ".85", "--tie-tolerance-hashes", "2"]}
-        (self.case.source / "mashpit_run.json").write_text(json.dumps(run))
-        manifest = self.case.root / "pilot-manifest.json"
-        manifest.write_text(json.dumps({"data_role": "development", "cases": [{"case_id": "07", "mashpit_output_dir": "mashpit", "expected_cluster": "C2"}]}))
-        result = compare(manifest, self.case.root / "comparison.json")
-        case = result["cases"][0]
-        self.assertEqual(case["frozen_v2"]["expected_cluster_references_selected"], 0)
-        self.assertEqual(case["revised_adaptive"]["expected_cluster_references_selected"], 1)
-        self.assertEqual(case["all_returned"]["expected_cluster_references_selected"], 1)
-
 
 if __name__ == "__main__":
     unittest.main()

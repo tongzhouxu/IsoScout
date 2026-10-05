@@ -150,7 +150,7 @@ docker run --rm --platform linux/amd64 \
 
 Add `--snp-resolve` to also download selected returned representative genomes from NCBI and compute split-kmer SNP distances with ska2 once a Mashpit candidate is found — a Neighbor-Joining tree, a per-cluster distance summary, and a confidence comparison between the nearest and next-nearest cluster. This is the only step that reaches out to the network (for public reference genomes; the query itself is never uploaded), so it's opt-in. See [references/snp-resolution.md](references/snp-resolution.md).
 
-Add `--snp-selection-mode all_returned` to compare every valid unique returned representative when the recorded 200-attempt budget fits. Supply `--query-accession` if the query itself appears in the database. Add `--snp-expand` to enable SNP refinement plus bounded exploration of additional members from the exact NCBI cluster release. Each round records why it expands or stops; stable sampling is not exhaustive search. For paired-read inputs, SKA2 uses cleaned reads directly, although Mashpit still needs the generated assembly. See [cluster expansion](references/cluster-expansion.md) and [verification/benchmarking](references/benchmarking.md). The implementation and comparability defaults require biological validation before strain-assignment claims.
+Add `--snp-selection-mode all_returned` to compare every valid unique returned representative when the recorded 200-attempt budget fits. Supply `--query-accession` if the query itself appears in the database. Add `--snp-expand` to enable SNP refinement plus bounded exploration of additional members from the exact NCBI cluster release. The revised default prioritizes SNP-leading clusters after broad representative screening, reserves rotating slots for alternatives, and requires focused qualifying coverage before a stability stop. `--refinement-policy PATH` accepts an explicit versioned policy file with recorded budgets. Each round records allocation and stopping rationale; stable sampling is not exhaustive search or proof of nearest-genome recovery. For paired-read inputs, SKA2 uses cleaned reads directly, although Mashpit still needs the generated assembly. See [cluster expansion](references/cluster-expansion.md) and [software verification](references/verification.md). The implementation and comparability defaults require biological validation before strain-assignment claims.
 
 The legacy `databases-v1` packages do not include full cluster membership.
 All five [databases-v2](https://github.com/tongzhouxu/IsoScout/releases/tag/databases-v2) packages were built and verified with the
@@ -171,7 +171,7 @@ audits and logs:
 
 ### Similarity-distribution diagnostics
 
-Each successfully parsed Mashpit query now adds a rank–similarity plot and numerical diagnostics to the report. These show score gaps at ranks 50/100/200, the number of representatives within Mashpit's sketch tolerance of the best score, and whether retrieval or the current SNP selection policy may cut through a near-tie. They preview policy 3.0.0: include the global top 50 unique nonself representatives, use up to 50 more slots for alternative-cluster coverage and global rank, and cap total reference attempts (including member expansion) at 200. Sketch near-ties describe scores but do not exclude SNP candidates. `--snp-selection-mode all_returned` benchmarks all returned representatives if they fit the recorded 200-attempt budget. Every inclusion, resource omission, download, and qualifying or excluded comparison is recorded; these computational defaults still require biological benchmarking.
+Each successfully parsed Mashpit query now adds a rank–similarity plot and numerical diagnostics to the report. These show score gaps at ranks 50/100/200, the number of representatives within Mashpit's sketch tolerance of the best score, and whether retrieval or the current SNP selection policy may cut through a near-tie. They preview policy 3.0.1: include the global top 50 unique nonself representatives, use up to 50 more slots for alternative-cluster coverage and global rank, and cap total reference attempts (including member expansion) at 200. Sketch near-ties describe scores but do not exclude SNP candidates. `--snp-selection-mode all_returned` attempts all returned representatives if they fit the recorded 200-attempt budget. Every inclusion, resource omission, download, and qualifying or excluded comparison is recorded; these computational defaults still require biological validation.
 
 Full ranked scores, cluster composition, source checksums, and cutoff flags are saved in `similarity_distribution/summary.json`. See [the diagnostics guide](references/similarity-distribution.md) for interpretation and the standalone command for previous runs. Use the updated checkout mounted as described above; the existing published image is unchanged.
 
@@ -182,11 +182,11 @@ PYTHONPYCACHEPREFIX=/tmp/isoscout_pycache python3 -m unittest discover -s tests 
 ```
 
 The default suite mocks external bioinformatics execution and does not need
-Docker, Mashpit, or a real database (89 tests; one integration test skipped).
-With the updated checkout mounted in the pinned-tool container,
-`ISOSCOUT_TOOL_TESTS=1` runs all 89, including real SKA2 on synthetic
-assembly/read inputs. A real end-to-end run additionally needs the container
-and at least one database, per Manual setup above.
+Docker, Mashpit, or a real database (87 tests; one optional integration test
+skipped on a host without SKA2). In the pinned-tool container,
+`ISOSCOUT_TOOL_TESTS=1` also runs the real SKA2 assembly/read test on seeded
+DNA. A real end-to-end run additionally needs the container and at least one
+database, per Manual setup above.
 
 ## Reference docs
 
@@ -197,6 +197,8 @@ and at least one database, per Manual setup above.
 - [references/qc-policy.md](references/qc-policy.md) — QC thresholds and their evidence basis
 - [references/mashpit-interpretation.md](references/mashpit-interpretation.md) — how a Mashpit result is labeled
 - [references/snp-resolution.md](references/snp-resolution.md) — the optional ska2 SNP-resolution step
+- [references/cluster-expansion.md](references/cluster-expansion.md) — focused member expansion and resource limits
+- [references/verification.md](references/verification.md) — software test commands and interpretation limits
 - [references/limitations.md](references/limitations.md) — scope and scientific limitations
 - [CHANGELOG.md](CHANGELOG.md) — release history
 - [CITATION.cff](CITATION.cff) — how to cite this skill and Mashpit itself

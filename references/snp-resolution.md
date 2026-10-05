@@ -1,4 +1,4 @@
-# SNP resolution: selection policy 3.0.0
+# SNP resolution: selection policy 3.0.1
 
 Optional, opt-in refinement of a Mashpit candidate using ska2 pairwise SNP distances. Governed by `config/snp-resolution-policy.json` (versioned resource policy) and the `snp_resolution` block of `config/workflow.json` (fixed ska2 command profile). Enable with `--snp-resolve`.
 
@@ -16,9 +16,10 @@ Unlike the rest of the screen, this step is **not** fully local. A Mashpit datab
 
 ## Target selection and budgets
 
-The default `global-ranked-cluster-coverage-v1` policy (3.0.0) uses an initial
+The default `global-ranked-cluster-coverage-v1` policy (3.0.1) uses an initial
 **global** target of 50, a maximum of 100 returned representatives in adaptive
-mode, at most 100 additional expansion attempts, and a total ceiling of 200
+mode, at most 100 additional expansion attempts under the default focused
+refinement profile, and a total ceiling of 200
 attempted reference downloads including later member expansion. Mashpit still
 returns at most 200 representatives by default.
 These are separate recorded computational budgets, not biological cutoffs.
@@ -40,21 +41,21 @@ These are separate recorded computational budgets, not biological cutoffs.
    any remaining slots in global rank order. Cluster leaders are visited in
    global rank order. This is a deterministic coverage strategy, not a claim
    that a lower scored cluster is biologically implausible.
-   The versioned `coverage_strategy` can instead be set to `global_rank_only`
-   for a rank-only budget comparison. Both strategies preserve the first 50;
-   neither uses a score-gap exclusion.
+   The versioned `coverage_strategy` can instead be set to `global_rank_only`.
+   Both strategies preserve the first 50; neither uses a score-gap exclusion.
 4. `--snp-selection-mode all_returned` requests every valid unique returned
-   representative as a benchmarking baseline. It requires the total reference
+   representative. It requires the total reference
    budget to fit the entire returned set; otherwise selection is `SKIPPED` with
    `all_returned_budget_insufficient` decisions. It never silently turns into a
-   partial baseline. With 200 returned references and the default 200-attempt
+   partial set. With 200 returned references and the default 200-attempt
    ceiling, it attempts all 200, leaving no member-expansion capacity.
 
 `--snp-resolve` uses adaptive mode by default. `--snp-expand` additionally
 explores exact-release members of clusters represented in the selected returned
-set. To change budgets, edit a copy of the versioned policy and run the
-standalone selector, or release a new audited workflow configuration. The
-screen command itself uses the checked-in policy. No score-distribution
+set. The expansion profile is versioned separately from representative selection;
+`--refinement-policy` can select another explicit, versioned policy file without
+changing Mashpit retrieval or the initial candidate set. Its expansion and
+comparability settings are applied together and recorded. No score-distribution
 heuristic changes eligibility or budgets; exploratory plots and near-tie flags
 must not be interpreted as evidence that omitted clusters lack closer SNP
 neighbors.
@@ -71,15 +72,11 @@ mode and query accession; it predicts requests, not downloads or comparisons.
 For standalone selection, use `select_snp_targets.py --mashpit-output-dir ...
 --policy config/snp-resolution-policy.json --mode adaptive|all_returned
 --output ...` and optionally `--query-accession`. The saved Mashpit directory
-must contain `mashpit_run.json`; no current settings are guessed. Policy v2 is
-retained only in `frozen_select_snp_targets_v2.py` for comparisons and is not
-used by the current screen.
+must contain `mashpit_run.json`; no current settings are guessed.
 
 ## Genome retrieval and SNP distance
 
 Representative genomes are downloaded with `datasets download genome accession --include genome --dehydrated` followed by `datasets rehydrate` — one batched call for every selected accession, not one request per genome — retried up to `download_attempts` times for genomes that fail. The query assembly or cleaned read pair plus every successfully downloaded reference are built into one ska2 split-kmer file (`ska build -f <name-path list> -k <kmer_size>`, pinned k-mer size in `workflow.json`), then compared with `ska distance`, which reports the number of SNPs differing between every pair — the *entire* pairwise matrix (every representative against every other, not just against the query).
-
-Historical measurement with the former fixed 100/100 caps against a previously tested 714-representative Listeria cluster: ~42s total (versus ~14s at the old 5/20 caps), ~299MB downloaded (versus ~15MB). This timing does not benchmark the new adaptive policy or its 200-reference ceiling.
 
 ## Interpretation
 
@@ -96,6 +93,9 @@ The final `coverage` block lists every returned representative left unexamined,
 every attempted, verified, and unavailable download, every qualifying and
 comparability-excluded query comparison, and discovered but unexamined members.
 It also flags when member coverage is unknown because membership was not read.
+Per-round allocation and newly qualifying comparisons are in `expansion.json`;
+the final report separates cluster-label concordance from recovery of an
+individual nearest genome among those examined.
 The report separates Mashpit-displayed alternatives from alternatives actually
 tested by SKA2. No stable within-cluster result rules out an untested cluster.
 

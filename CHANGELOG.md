@@ -4,7 +4,13 @@ All notable changes to this project are documented here. Format loosely follows 
 
 ## [Unreleased]
 
-- Workflow 1.7.0 / selection policy 3.0.0 / refinement policy 1.1.0 removes the sketch-tolerance cluster gate. The global first 50 nonself unique returned references are guaranteed when eligible and budgeted; adaptive mode uses up to 100 returned references with explicit cluster-leader coverage, and all-returned mode requires enough budget for every returned reference. Expansion now considers members of every selected cluster. Previews, actual coverage, reports, and provenance distinguish resource omissions, failed downloads, comparability exclusions, and nearest ties. Frozen v2 policy and a three-policy comparison harness preserve pilot reproducibility. No biological accuracy claim.
+- Workflow 1.8.0 / skill 1.4.0 / refinement policy 2.0.0 replaces flat member round-robin with qualifying-SNP-led focused expansion and rotating reserved alternative capacity. It tracks per-cluster new qualifying coverage, blocks premature stability, separates isolated comparability failures from unresolved clusters, and records allocation and uncertainty in reports/provenance. Initial selection, Mashpit return limits, and default resource limits remain unchanged. Real pilot and independent confirmation remain unrun here.
+
+- Removed research comparison scripts, historical policy copies, and study-specific fixtures from the skill repository. The study will be developed separately for the paper; operational regression tests and software verification remain here.
+
+- Selection policy 3.0.1 keeps the same candidate choices and budgets while renaming the `all_returned` inclusion reason to `all_returned_mode`.
+
+- Workflow 1.7.0 / selection policy 3.0.0 removes the sketch-tolerance cluster gate. The global first 50 nonself unique returned references are guaranteed when eligible and budgeted; adaptive mode uses up to 100 returned references with explicit cluster-leader coverage, and all-returned mode requires enough budget for every returned reference. Expansion now considers members of every selected cluster. Previews, actual coverage, reports, and provenance distinguish resource omissions, failed downloads, comparability exclusions, and nearest ties. No biological accuracy claim.
 
 - Workflow 1.6.0 / skill 1.2.0 adds `package_database_release.py` to create new database bundles with exact-release metadata and cluster membership, verified against every representative and recorded with checksums. Expansion uses validated bundled tables offline, while existing `databases-v1` packages retain exact-release download support. Corrupt bundles fail closed.
 
@@ -14,7 +20,7 @@ All notable changes to this project are documented here. Format loosely follows 
 
 - Audited all 90 tests and consolidated four redundant cases into stronger existing checks, retaining their distinct assertions. Removed repeated assertions and unused test imports. All 86 remaining tests pass in the pinned-tool container; measured in-process production execution coverage is unchanged.
 
-- Workflow 1.5.0 adds opt-in exact-release cluster-member expansion and bounded refinement feedback with per-round audits, explicit incomplete coverage, and preservation of successful comparisons after later failures. Cleaned paired reads now feed SKA2 directly. Comparability gates exclude low-overlap rankings; tied minima remain ambiguous and zero SNPs no longer imply identity. Added finite-pool benchmarking and an offline real-SKA2 integration test using seeded random DNA. Biological validation remains required.
+- Workflow 1.5.0 adds opt-in exact-release cluster-member expansion and bounded refinement feedback with per-round audits, explicit incomplete coverage, and preservation of successful comparisons after later failures. Cleaned paired reads now feed SKA2 directly. Comparability gates exclude low-overlap rankings; tied minima remain ambiguous and zero SNPs no longer imply identity. Added an offline real-SKA2 integration test using seeded random DNA. Biological validation remains required.
 
 - Workflow 1.4.0 enables adaptive SNP selection (policy 2.0.0): initial target 50, boundary near-tie expansion, alternative-cluster coverage, and hard ceiling 200. Deduplicates repeated accessions, records every decision, and exposes resource/retrieval limits and download losses. Diagnostics and actual refinement use the same selector. Added 13 adaptive-selection tests, including preview/download agreement. These defaults are not biologically validated.
 

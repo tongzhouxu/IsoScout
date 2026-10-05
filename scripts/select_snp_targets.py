@@ -23,8 +23,8 @@ def select_targets(
     database: dict[str, Any] | None = None, profile: dict[str, Any] | None = None,
     mode: str | None = None, query_accession: str | None = None,
 ) -> dict[str, Any]:
-    if policy.get("strategy") != "global-ranked-cluster-coverage-v1" or policy.get("policy_version") != "3.0.0":
-        raise WorkflowError("Expected version 3.0.0 global-ranked-cluster-coverage-v1 selection policy.")
+    if policy.get("strategy") != "global-ranked-cluster-coverage-v1" or policy.get("policy_version") != "3.0.1":
+        raise WorkflowError("Expected version 3.0.1 global-ranked-cluster-coverage-v1 selection policy.")
     initial = _positive_integer(policy, "initial_target_genomes")
     returned_cap = _positive_integer(policy, "max_returned_representatives")
     total_cap = _positive_integer(policy, "max_total_genomes")
@@ -63,7 +63,7 @@ def select_targets(
         if mode == "all_returned":
             for row in available:
                 selected.add(row["accession"])
-                reasons[row["accession"]] = "all_returned_benchmark"
+                reasons[row["accession"]] = "all_returned_mode"
         else:
             for row in available[:initial]:
                 selected.add(row["accession"])
@@ -115,7 +115,7 @@ def select_targets(
                           "within_top_tolerance": within_tolerance(best - row["score"], tolerance) if best is not None else None,
                           "upstream_near_top_cluster": row["cluster"] in near_top})
     return {
-        "schema_version": "3.0.0", "status": "SELECTED" if selected else "SKIPPED",
+        "schema_version": "3.0.1", "status": "SELECTED" if selected else "SKIPPED",
         **({"reason": "All-returned budget is insufficient." if insufficient_budget else "No eligible representatives to resolve."} if not selected else {}),
         "policy": dict(policy), "mode": mode,
         "scope": "Returned Mashpit representatives only; no omitted cluster is ruled out by sketch score.",

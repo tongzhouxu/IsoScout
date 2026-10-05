@@ -15,10 +15,11 @@ sys.path.insert(0, str(ROOT / "scripts"))
 import test_similarity_distribution as fixtures
 from common import WorkflowError, load_json, sha256_file
 from expand_cluster_members import parse_members, discover_members, download_file
+from generate_report import generate_report
 from package_database_release import package_database
 from run_mashpit import validate_database
 from interpret_snp_resolution import interpret
-from refinement_expansion import feedback, next_batch
+from refinement_expansion import assess_progress, member_coverage, schedule_focused_batch, validate_expansion_policy
 from run_ska import build_file_list, parse_distance_table, DISTANCE_HEADER
 from screen_isolate import run_snp_resolution, screen
 
@@ -169,20 +170,92 @@ class InterpretationTests(unittest.TestCase):
     def test_no_qualified_comparison_is_insufficient(self):
         result = interpret([comparison("QUERY", "A", 0, 1)], [{"accession": "A", "cluster": "C1"}], "C1")
         self.assertEqual(result["status"], "INSUFFICIENT_DATA")
-        self.assertEqual(feedback(None, result)["action"], "STOP")
+        self.assertEqual(result["excluded_comparisons"][0]["sample"], "A")
 
-    def test_feedback_tracks_improvement_ties_and_stability(self):
-        previous = {"ranked": [1], "nearest_snp_distance": 5, "nearest_samples": ["A"], "nearest_clusters": ["C1"]}
-        changed = {**previous, "nearest_snp_distance": 2, "nearest_samples": ["B"]}
-        self.assertIn("closer_neighbor_found", feedback(previous, changed)["reason"])
-        self.assertTrue(feedback(previous, previous)["stable"])
-        self.assertFalse(feedback(previous, {**previous, "nearest_snp_distance": 6})["stable"])
-        self.assertFalse(feedback(previous, {**previous, "nearest_clusters": ["C1", "C2"]})["stable"])
 
-    def test_batches_are_balanced_and_budgeted_without_repeats(self):
-        members = [{"accession": a, "cluster": c} for a, c in [("A", "C1"), ("B", "C1"), ("C", "C2"), ("D", "C2")]]
-        batch = next_batch(members, {"A"}, ["C1", "C2"], 25, 2)
-        self.assertEqual([row["accession"] for row in batch], ["B", "C"])
+class FocusedSchedulerTests(unittest.TestCase):
+    def setUp(self):
+        self.policy = load_json(ROOT / "config" / "refinement-policy.json")["expansion"]
+
+    @staticmethod
+    def interpretation(nearest=("C1",), qualifying=None, excluded=None):
+        qualifying = qualifying or [("REP", nearest[0])]
+        return {"ranked": [{"sample": sample, "cluster": cluster} for sample, cluster in qualifying],
+                "excluded_comparisons": [{"sample": sample, "cluster": cluster} for sample, cluster in (excluded or [])],
+                "nearest_clusters": list(nearest), "nearest_samples": [qualifying[0][0]], "nearest_snp_distance": 5}
+
+    def test_focused_batch_gives_leader_meaningful_share_and_reserves_alternatives(self):
+        clusters = ["C1"] + [f"C{i:02d}" for i in range(2, 71)]
+        members = [{"accession": f"L{i:03d}", "cluster": "C1"} for i in range(100)]
+        members += [{"accession": f"A{i:03d}", "cluster": cluster} for i, cluster in enumerate(clusters[1:])]
+        batch, state, audit = schedule_focused_batch(members, set(), clusters,
+            self.interpretation(), self.policy, 100, 7)
+        self.assertEqual(len(batch), 25)
+        self.assertGreaterEqual(sum(row["cluster"] == "C1" for row in batch), 19)
+        self.assertGreaterEqual(sum(row["cluster"] != "C1" for row in batch), 2)
+        self.assertIn("alternative_after", state)
+        self.assertEqual(len({row["accession"] for row in batch}), 25)
+        self.assertEqual(audit["leading_clusters"], ["C1"])
+
+    def test_tied_leaders_both_receive_focus_and_alternative_remains(self):
+        members = ([{"accession": f"A{i:03d}", "cluster": "C1"} for i in range(20)]
+                   + [{"accession": f"B{i:03d}", "cluster": "C2"} for i in range(20)]
+                   + [{"accession": f"C{i:03d}", "cluster": "C3"} for i in range(10)])
+        batch, _, audit = schedule_focused_batch(members, set(), ["C1", "C2", "C3"],
+            self.interpretation(("C1", "C2")), self.policy, 100, 7)
+        counts = {cluster: sum(row["cluster"] == cluster for row in batch) for cluster in ("C1", "C2", "C3")}
+        self.assertGreaterEqual(counts["C1"], 9)
+        self.assertGreaterEqual(counts["C2"], 9)
+        self.assertGreaterEqual(counts["C3"], 2)
+        self.assertEqual(audit["leading_clusters"], ["C1", "C2"])
+
+    def test_alternative_cursor_reaches_later_clusters_across_rounds(self):
+        clusters = ["C1"] + [f"C{i:02d}" for i in range(2, 12)]
+        members = ([{"accession": f"L{i:03d}", "cluster": "C1"} for i in range(100)]
+                   + [{"accession": f"A{i:03d}", "cluster": cluster} for i, cluster in enumerate(clusters[1:])])
+        attempted = set()
+        state = {}
+        seen_alternatives = []
+        qualifying = [("REP", cluster) for cluster in clusters]
+        for round_index in range(5):
+            batch, state, _ = schedule_focused_batch(members, attempted, clusters,
+                self.interpretation(qualifying=qualifying), self.policy, 100 - len(attempted), 7 - round_index, state)
+            seen_alternatives.extend(row["cluster"] for row in batch if row["cluster"] != "C1")
+            attempted.update(row["accession"] for row in batch)
+        self.assertIn("C11", seen_alternatives)
+        self.assertEqual(len(seen_alternatives), len(set(seen_alternatives)))
+
+    def test_isolated_exclusion_does_not_block_but_unresolved_cluster_does(self):
+        previous = self.interpretation(qualifying=[("REP", "C1")])
+        current = self.interpretation(qualifying=[("REP", "C1"), ("NEW", "C1"), ("ALT", "C2")], excluded=[("BAD", "C1")])
+        coverage = [{"cluster": "C1", "qualifying_additional": 20, "unexamined_additional": 10},
+                    {"cluster": "C2", "qualifying_additional": 0, "unexamined_additional": 0}]
+        result = assess_progress(previous, current, coverage, self.policy, False, 0)
+        self.assertTrue(result["stable"])
+        unresolved = coverage + [{"cluster": "C3", "qualifying_additional": 0, "unexamined_additional": 5}]
+        result = assess_progress(previous, current, unresolved, self.policy, False, 0)
+        self.assertFalse(result["stable"])
+        self.assertIn("C3", result["unresolved_alternatives_with_pending_references"])
+
+    def test_determinism_dedup_self_exclusion_and_strict_budget(self):
+        members = ([{"accession": f"A{i}", "cluster": "C1"} for i in range(5)]
+                   + [{"accession": "A1", "cluster": "C1"}, {"accession": "SELF", "cluster": "C2"},
+                      {"accession": "OTHER", "cluster": "C2"}])
+        args = (members, {"A0"}, ["C1", "C2"], self.interpretation(), self.policy, 3, 2)
+        first, _, _ = schedule_focused_batch(*args, query_accession="SELF")
+        second, _, _ = schedule_focused_batch(*args, query_accession="SELF")
+        self.assertEqual(first, second)
+        self.assertEqual(len(first), 3)
+        self.assertEqual(len({row["accession"] for row in first}), 3)
+        self.assertFalse({"A0", "SELF"} & {row["accession"] for row in first})
+        with self.assertRaises(WorkflowError):
+            schedule_focused_batch(members + [{"accession": "A1", "cluster": "C2"}], {"A0"},
+                                   ["C1", "C2"], self.interpretation(), self.policy, 3, 2)
+
+    def test_invalid_allocation_is_rejected(self):
+        for change in ({"leading_share": 1}, {"alternative_min_slots": 25}, {"min_focused_qualifying_per_leader": 0}):
+            with self.assertRaises(WorkflowError):
+                validate_expansion_policy({**self.policy, **change})
 
 
 class IterativeWorkflowTests(unittest.TestCase):
@@ -191,129 +264,133 @@ class IterativeWorkflowTests(unittest.TestCase):
         self.case.setUp()
         self.addCleanup(self.case.temporary.cleanup)
         self.case.fixture([1.])
-        self.membership = {"status": "AVAILABLE", "release": "fixture", "sources": [], "members": [{"accession": f"MEMBER_{i:03d}", "cluster": "C1"} for i in range(100)]}
+        self.membership = {"status": "AVAILABLE", "release": "fixture", "sources": [],
+                           "members": [{"accession": f"MEMBER_{i:03d}", "cluster": "C1"} for i in range(100)]}
 
-    def execute(self, interpretations, membership=None, settings=None, ska_results=None, failed_members=False, query_accession=None):
+    def execute(self, membership=None, settings=None, distance_map=None, bad=None, query_accession=None, ska_fail_round=None, comparability=None):
+        membership = membership or self.membership
+        distance_map = distance_map or {}
+        bad = bad or set()
         def fetch(accessions, *_):
-            if failed_members and all(acc.startswith("MEMBER_") for acc in accessions):
-                return {"commands": [], "verified": {}, "unavailable": accessions}
             return {"commands": [], "verified": {acc: "/tmp/" + acc + ".fa" for acc in accessions}, "unavailable": []}
+        def interpret_targets(_distances, targets, _best, _policy):
+            self.assertEqual(_policy, refinement["comparability"])
+            ranked = [{"sample": row["accession"], "cluster": row["cluster"],
+                       "snp_distance": distance_map.get(row["accession"], 5)}
+                      for row in targets if row["accession"] not in bad]
+            ranked.sort(key=lambda row: (row["snp_distance"], row["sample"]))
+            minimum = ranked[0]["snp_distance"] if ranked else None
+            nearest = [row for row in ranked if row["snp_distance"] == minimum]
+            return {"status": "COMPARED" if ranked else "INSUFFICIENT_DATA", "ranked": ranked,
+                    "nearest_snp_distance": minimum, "nearest_samples": [row["sample"] for row in nearest],
+                    "nearest_clusters": sorted({row["cluster"] for row in nearest}),
+                    "excluded_comparisons": [{"sample": row["accession"], "cluster": row["cluster"],
+                                               "reasons": ["insufficient_shared_split_kmers"]} for row in targets if row["accession"] in bad],
+                    "warnings": []}
         refinement = load_json(ROOT / "config" / "refinement-policy.json")
         refinement["expansion"].update(settings or {})
+        refinement["comparability"].update(comparability or {})
         real_load = load_json
         def config(path):
             return refinement if path.name == "refinement-policy.json" else real_load(path)
-        with patch("screen_isolate.load_json", side_effect=config), patch("screen_isolate.fetch_genomes", side_effect=fetch) as download, patch("screen_isolate.run_ska", return_value={"commands": [], "distances": []}, side_effect=ska_results), patch("screen_isolate.interpret_snp_resolution", side_effect=interpretations), patch("screen_isolate.discover_members", return_value=membership or self.membership), patch("screen_isolate.render_from_interpretation", return_value={"status": "SKIPPED"}):
-            result = run_snp_resolution(self.case.source, self.case.root / "query.fa", "C1", self.case.root / "snp", self.case.database, expand=True, query_accession=query_accession)
+        ska_calls = [0]
+        def ska(*_):
+            ska_calls[0] += 1
+            if ska_fail_round is not None and ska_calls[0] == ska_fail_round:
+                raise WorkflowError("round tool failure")
+            return {"commands": [], "distances": []}
+        with patch("screen_isolate.load_json", side_effect=config), patch("screen_isolate.fetch_genomes", side_effect=fetch) as download, patch("screen_isolate.run_ska", side_effect=ska), patch("screen_isolate.interpret_snp_resolution", side_effect=interpret_targets), patch("screen_isolate.discover_members", return_value=membership), patch("screen_isolate.render_from_interpretation", return_value={"status": "SKIPPED"}):
+            result = run_snp_resolution(self.case.source, self.case.root / "query.fa", "C1", self.case.root / "snp", self.case.database,
+                                        expand=True, query_accession=query_accession)
         return result["snp_resolution"], [call.args[0] for call in download.call_args_list]
 
-    @staticmethod
-    def comparison(distance=5, samples=None):
-        return {"status": "COMPARED", "ranked": [{"sample": (samples or ["GCA_0000"])[0]}], "nearest_snp_distance": distance, "nearest_samples": samples or ["GCA_0000"], "nearest_clusters": ["C1"], "excluded_comparisons": [], "warnings": []}
+    def test_closer_member_appears_after_focused_exploration(self):
+        clusters = [f"C{i:02d}" for i in range(30)]
+        self.case.fixture([1. - i * .001 for i in range(30)], clusters)
+        membership = {"status": "AVAILABLE", "members": (
+            [{"accession": f"LEAD_{i:03d}", "cluster": "C00"} for i in range(60)]
+            + [{"accession": f"ALT_{i:03d}", "cluster": cluster} for i, cluster in enumerate(clusters[1:])])}
+        distances = {f"GCA_{i:04d}": (5 if i == 0 else 20) for i in range(30)}
+        distances.update({f"ALT_{i:03d}": 20 for i in range(29)})
+        distances["LEAD_030"] = 1
+        result, downloads = self.execute(membership=membership, distance_map=distances, settings={"max_rounds": 4})
+        self.assertIn("LEAD_030", {acc for batch in downloads for acc in batch})
+        self.assertEqual(result["nearest_snp_distance"], 1)
+        self.assertGreaterEqual(sum(acc.startswith("LEAD_") for batch in downloads[1:] for acc in batch), 31)
+        self.assertTrue(any(row.get("allocation", {}).get("leading_clusters") == ["C00"] for row in result["expansion"]["rounds"]))
+        report = generate_report({"sample": "fixture", "status": "COMPLETED", "input_type": "assembly",
+                                  "mashpit_result": {"best_candidate": {"cluster": "C00", "score": 1.0},
+                                                     "screening_result": "CANDIDATE"},
+                                  "snp_resolution": result})
+        self.assertIn("SNP comparison coverage by returned cluster", report)
+        self.assertIn("| Cluster | Attempted | Downloaded | Qualifying | Excluded |", report)
+        self.assertIn("Expansion decisions after each comparison", report)
+        self.assertIn("All equally nearest qualifying references: LEAD_030", report)
 
-    def test_stability_stop_is_explicitly_incomplete(self):
-        result, downloads = self.execute([self.comparison() for _ in range(3)])
-        self.assertEqual(result["expansion"]["stop_reason"], "stable_sampled_neighborhood")
-        self.assertEqual([len(batch) for batch in downloads], [1, 25, 25])
-        self.assertEqual(result["expansion"]["pending_available_members"], 50)
-        self.assertEqual(len({acc for batch in downloads for acc in batch}), 51)
-        self.assertTrue(any("incompletely examined" in warning for warning in result["warnings"]))
+    def test_unchanged_early_rounds_cannot_stop_before_focused_minimum(self):
+        membership = {"status": "AVAILABLE", "members": [{"accession": f"MEMBER_{i:03d}", "cluster": "C1"} for i in range(200)]}
+        result, downloads = self.execute(membership=membership,
+            settings={"min_focused_qualifying_per_leader": 60, "max_additional_reference_attempts": 100})
+        self.assertGreaterEqual(len(downloads), 4)
+        self.assertNotEqual(result["expansion"]["stop_reason"], "stable_sampled_neighborhood")
+        self.assertEqual(result["expansion"]["additional_reference_attempts"], 100)
+        self.assertTrue(result["expansion"]["remaining_uncertainty"]["budget_or_round_limit_prevented_required_exploration"])
 
-    def test_improvement_resets_stability_and_respects_round_limit(self):
-        results = [self.comparison(), self.comparison(2, ["MEMBER_000"]), self.comparison(2, ["MEMBER_000"])]
-        result, _ = self.execute(results, settings={"max_rounds": 3})
-        self.assertEqual(result["expansion"]["stop_reason"], "round_limit")
-        self.assertIn("closer_neighbor_found", result["expansion"]["rounds"][1]["feedback"]["reason"])
+    def test_alternative_exploration_corrects_misleading_initial_leader(self):
+        self.case.fixture([1., .995], ["C1", "C2"])
+        membership = {"status": "AVAILABLE", "members": ([{"accession": f"LEAD_{i:03d}", "cluster": "C1"} for i in range(50)]
+                                                   + [{"accession": "ALT_CLOSE", "cluster": "C2"}])}
+        distances = {"GCA_0000": 5, "GCA_0001": 6, "ALT_CLOSE": 1}
+        result, downloads = self.execute(membership=membership, distance_map=distances,
+                                         settings={"max_rounds": 3})
+        self.assertIn("ALT_CLOSE", downloads[1])
+        self.assertEqual(result["nearest_clusters"], ["C2"])
+        self.assertEqual(result["nearest_snp_distance"], 1)
 
-    def test_total_budget_is_never_exceeded(self):
-        result, downloads = self.execute([self.comparison(), self.comparison()], settings={"max_total_genomes": 4})
-        self.assertEqual([len(batch) for batch in downloads], [1, 3])
-        self.assertEqual(result["expansion"]["stop_reason"], "hard_resource_ceiling")
-
-    def test_separate_expansion_budget_limits_later_attempts(self):
-        result, downloads = self.execute([self.comparison(), self.comparison()],
-                                         settings={"max_additional_reference_attempts": 3})
-        self.assertEqual([len(batch) for batch in downloads], [1, 3])
-        self.assertEqual(result["expansion"]["additional_reference_attempts"], 3)
-        self.assertEqual(result["expansion"]["stop_reason"], "additional_expansion_budget")
-
-    def test_missing_snapshot_keeps_initial_comparison(self):
-        result, downloads = self.execute([self.comparison()], membership={"status": "UNAVAILABLE", "error": "snapshot absent", "members": []})
-        self.assertEqual(result["status"], "COMPARED")
-        self.assertEqual(result["expansion"]["stop_reason"], "membership_unavailable")
-        self.assertEqual(len(downloads), 1)
-
-    def test_insufficient_overlap_stops_expansion(self):
-        result, downloads = self.execute([{"status": "INSUFFICIENT_DATA", "ranked": [], "warnings": []}])
-        self.assertEqual(result["expansion"]["stop_reason"], "insufficient_comparability")
-        self.assertEqual(len(downloads), 1)
-
-    def test_later_round_failure_preserves_successful_comparison(self):
-        result, downloads = self.execute([self.comparison()], ska_results=[{"commands": [], "distances": []}, WorkflowError("round tool failure")])
-        self.assertEqual(result["status"], "COMPARED")
-        self.assertEqual(result["nearest_snp_distance"], 5)
-        self.assertEqual(result["expansion"]["stop_reason"], "round_failed")
-        self.assertEqual(result["expansion"]["rounds"][-1]["compared_total"], 1)
-        self.assertEqual(len(downloads), 2)
-
-    def test_first_round_failure_records_error(self):
-        result, _ = self.execute([], ska_results=[WorkflowError("first round tool failure")])
-        self.assertEqual(result["status"], "ERROR")
-        self.assertEqual(result["error"], "first round tool failure")
-
-    def test_membership_conflict_keeps_initial_comparison(self):
-        membership = {"status": "AVAILABLE", "members": [{"accession": "GCA_0000", "cluster": "C2"}]}
-        result, downloads = self.execute([self.comparison()], membership=membership)
-        self.assertEqual(result["status"], "COMPARED")
-        self.assertEqual(result["expansion"]["stop_reason"], "membership_conflict")
-        self.assertIsNone(result["expansion"]["pending_available_members"])
-        self.assertEqual(len(downloads), 1)
-
-    def test_failed_downloads_do_not_count_as_stable_exploration(self):
-        result, _ = self.execute([self.comparison() for _ in range(3)], settings={"max_rounds": 3}, failed_members=True)
-        self.assertEqual(result["expansion"]["stop_reason"], "round_limit")
-        self.assertEqual(result["expansion"]["rounds"][-1]["feedback"]["reason"], "no_new_comparisons")
-
-    def test_exhausted_member_pool_has_no_unexamined_members(self):
-        membership = {"status": "AVAILABLE", "members": [{"accession": "NEW", "cluster": "C1"}]}
-        result, _ = self.execute([self.comparison(), self.comparison()], membership=membership)
-        self.assertEqual(result["expansion"]["stop_reason"], "available_member_pool_exhausted")
+    def test_finite_leader_pool_completes_when_budget_allows(self):
+        self.case.fixture([1., .995], ["C1", "C2"])
+        membership = {"status": "AVAILABLE", "members": ([{"accession": f"LEAD_{i:03d}", "cluster": "C1"} for i in range(15)]
+                                                   + [{"accession": f"ALT_{i:03d}", "cluster": "C2"} for i in range(3)])}
+        distances = {"GCA_0000": 5, "GCA_0001": 6}
+        result, downloads = self.execute(membership=membership, distance_map=distances,
+                                         settings={"max_rounds": 3})
+        self.assertTrue({f"LEAD_{i:03d}" for i in range(15)}.issubset({acc for batch in downloads for acc in batch}))
         self.assertEqual(result["expansion"]["pending_available_members"], 0)
 
-    def test_alternative_selected_cluster_members_join_expansion(self):
-        self.case.fixture([1., .995], ["C1", "C2"])
-        membership = {"status": "AVAILABLE", "members": [
-            {"accession": "MEMBER_A", "cluster": "C1"},
-            {"accession": "MEMBER_B", "cluster": "C2"},
-        ]}
-        nearest_c2 = {**self.comparison(), "nearest_clusters": ["C2"]}
-        result, downloads = self.execute([nearest_c2, nearest_c2], membership=membership,
-                                         settings={"batch_size": 2, "max_rounds": 2})
-        self.assertEqual(downloads[0], ["GCA_0000", "GCA_0001"])
-        self.assertEqual(downloads[1], ["MEMBER_B", "MEMBER_A"])
-        self.assertEqual(result["coverage"]["members_unexamined"], [])
+    def test_insufficient_evidence_explores_broadly_then_reports_uncertainty(self):
+        membership = {"status": "AVAILABLE", "members": [{"accession": "NEW", "cluster": "C1"}]}
+        result, downloads = self.execute(membership=membership, bad={"GCA_0000", "NEW"})
+        self.assertEqual(downloads, [["GCA_0000"], ["NEW"]])
+        self.assertEqual(result["expansion"]["stop_reason"], "insufficient_evidence_pool_exhausted")
+        self.assertEqual(result["expansion"]["remaining_uncertainty"]["unresolved_selected_clusters"], ["C1"])
 
-    def test_selected_rank_only_member_priority_is_configurable(self):
-        self.case.fixture([1., .995], ["C1", "C2"])
-        membership = {"status": "AVAILABLE", "members": [
-            {"accession": "MEMBER_A", "cluster": "C1"},
-            {"accession": "MEMBER_B", "cluster": "C2"},
-        ]}
-        nearest_c2 = {**self.comparison(), "nearest_clusters": ["C2"]}
-        _, downloads = self.execute([nearest_c2, nearest_c2], membership=membership,
-                                    settings={"batch_size": 2, "max_rounds": 2, "cluster_priority": "selected_rank_only"})
-        self.assertEqual(downloads[1], ["MEMBER_A", "MEMBER_B"])
+    def test_resource_limits_are_strict_and_failed_round_keeps_prior_result(self):
+        result, downloads = self.execute(settings={"max_total_genomes": 4})
+        self.assertEqual([len(batch) for batch in downloads], [1, 3])
+        self.assertEqual(result["expansion"]["stop_reason"], "hard_resource_ceiling")
+        failed, failed_downloads = self.execute(ska_fail_round=2)
+        self.assertEqual(failed["expansion"]["stop_reason"], "round_failed")
+        self.assertEqual(len(failed_downloads), 2)
+        self.assertEqual(failed["nearest_snp_distance"], 5)
 
-    def test_query_self_is_not_reintroduced_by_member_expansion(self):
+    def test_custom_comparability_is_used_for_snp_interpretation(self):
+        result, _ = self.execute(comparability={"min_shared_split_kmers": 42})
+        self.assertEqual(result["status"], "COMPARED")
+
+    def test_query_self_excluded_from_expansion_and_pinned_conflict_stops(self):
         self.case.fixture([1., .995], ["C1", "C1"])
         membership = {"status": "AVAILABLE", "members": [
-            {"accession": "GCA_0000", "cluster": "C1"},
-            {"accession": "MEMBER_A", "cluster": "C1"},
-        ]}
-        result, downloads = self.execute([self.comparison(), self.comparison()], membership=membership,
-                                         settings={"batch_size": 2, "max_rounds": 2}, query_accession="GCA_0000")
-        self.assertEqual(downloads, [["GCA_0001"], ["MEMBER_A"]])
+            {"accession": "GCA_0000", "cluster": "C1"}, {"accession": "NEW", "cluster": "C1"}]}
+        result, downloads = self.execute(membership=membership, query_accession="GCA_0000")
+        self.assertEqual(downloads, [["GCA_0001"], ["NEW"]])
         self.assertTrue(result["coverage"]["query_self_excluded_from_members"])
+        conflict = {"status": "AVAILABLE", "members": [{"accession": "GCA_0001", "cluster": "C2"}]}
+        second_case = fixtures.SimilarityDiagnosticsTests()
+        second_case.setUp()
+        self.addCleanup(second_case.temporary.cleanup)
+        # The conflict is checked before any expansion allocation.
+        result2, _ = self.execute(membership=conflict, query_accession="GCA_0000")
+        self.assertEqual(result2["expansion"]["stop_reason"], "membership_conflict")
 
     def test_read_screen_passes_cleaned_reads_to_refinement(self):
         root = self.case.root
@@ -327,7 +404,7 @@ class IterativeWorkflowTests(unittest.TestCase):
         fake_run = {"command": ["mashpit"], "database": self.case.database, "output_directory": str(self.case.source)}
         with patch("screen_isolate.run_workflow", return_value=built), patch("screen_isolate.assess", return_value={"status": "PASS", "metrics": {"total_length": 4}}), patch("screen_isolate.run_mashpit", return_value=fake_run), patch("screen_isolate.run_snp_resolution", return_value={"snp_resolution": {"status": "SKIPPED"}, "commands": []}) as refine, patch("screen_isolate.collect", return_value={}), patch("analyze_similarity_distribution.render_plot", return_value={"status": "SKIPPED"}):
             screen([r1, r2], root / "screen", root, organism="listeria", snp_resolve=True)
-        self.assertEqual(refine.call_args.args[-3], clean_reads)
+        self.assertEqual(refine.call_args.args[6], clean_reads)
 
 
 class ReadAndDistanceContractTests(unittest.TestCase):

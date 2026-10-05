@@ -14,11 +14,13 @@ from common import CONFIG_DIR, executable_version, load_json, sha256_file, utc_n
 def collect(
     inputs: list[Path], assembly: Path | None, database_metadata: dict[str, Any] | None,
     commands: list[list[str]], extra: dict[str, Any] | None = None,
+    refinement_policy_path: Path | None = None,
 ) -> dict[str, Any]:
     workflow = load_json(CONFIG_DIR / "workflow.json")
     qc_policy = load_json(CONFIG_DIR / "qc-policy.json")
     selection_policy = load_json(CONFIG_DIR / "snp-resolution-policy.json")
-    refinement_policy = load_json(CONFIG_DIR / "refinement-policy.json")
+    refinement_policy_path = refinement_policy_path or CONFIG_DIR / "refinement-policy.json"
+    refinement_policy = load_json(refinement_policy_path)
     provenance = {
         "timestamp_utc": utc_now(),
         "skill_version": workflow["skill_version"],
@@ -28,7 +30,9 @@ def collect(
         "refinement_policy": refinement_policy,
         "snp_selection_policy_sha256": sha256_file(CONFIG_DIR / "snp-resolution-policy.json"),
         "snp_selector_sha256": sha256_file(Path(__file__).with_name("select_snp_targets.py")),
-        "refinement_policy_sha256": sha256_file(CONFIG_DIR / "refinement-policy.json"),
+        "refinement_scheduler_sha256": sha256_file(Path(__file__).with_name("refinement_expansion.py")),
+        "refinement_policy_sha256": sha256_file(refinement_policy_path),
+        "refinement_policy_path": str(refinement_policy_path.resolve()),
         "container": {
             "image": workflow["container_image"],
             "digest": workflow["container_digest"],

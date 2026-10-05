@@ -27,7 +27,7 @@ class SimilarityDiagnosticsTests(unittest.TestCase):
         self.source.mkdir()
         self.database = {"name": "listeria", "version": "test", "mashpit_database_settings": {"hash_number": 1000}}
         self.profile = {"number": 200, "threshold": .85, "tie_tolerance_hashes": 2}
-        self.policy = {"policy_version": "3.0.0", "strategy": "global-ranked-cluster-coverage-v1", "default_mode": "adaptive", "coverage_strategy": "unrepresented_cluster_leaders_then_global_rank", "initial_target_genomes": 50, "max_returned_representatives": 100, "max_total_genomes": 100}
+        self.policy = {"policy_version": "3.0.1", "strategy": "global-ranked-cluster-coverage-v1", "default_mode": "adaptive", "coverage_strategy": "unrepresented_cluster_leaders_then_global_rank", "initial_target_genomes": 50, "max_returned_representatives": 100, "max_total_genomes": 100}
         self.workflow = {"mashpit": self.profile, "similarity_diagnostics": {"rank_checkpoints": [50, 100, 200]}}
 
     def fixture(self, scores, clusters=None):
@@ -147,7 +147,7 @@ class SimilarityDiagnosticsTests(unittest.TestCase):
         self.assertEqual(result["status"], "COMPLETED_WITH_WARNINGS")
         self.assertEqual(result["similarity_distribution"]["returned_genomes"], 120)
         self.assertNotIn("snp_resolution", result)
-        self.assertIn("similarity_distribution", provenance.call_args.args[-1])
+        self.assertIn("similarity_distribution", provenance.call_args.args[-2])
         self.assertTrue((self.root / "screen" / "similarity_distribution" / "summary.json").is_file())
         report = (self.root / "screen" / "report.md").read_text()
         self.assertIn("rank_similarity.png", report)

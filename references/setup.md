@@ -13,10 +13,10 @@ docker tag ghcr.io/tongzhouxu/isoscout:latest isoscout:local
 The published image (2026-10-01) predates this checkout's adaptive selection,
 cluster expansion, and bundled membership support. A clean build from
 `container/Dockerfile` currently fails at conda dependency resolution. For
-benchmarking the updated checkout with the existing pinned tools, run from the
+running the updated checkout with the existing pinned tools, run from the
 repository root and add `--volume "$PWD:/opt/isoscout:ro"` to `docker run`.
-This was verified with all 89 tests, including the real SKA2 integration test,
-on 2026-10-02. Retain the checkout commit with the results; the configured
+An earlier checkout was verified with its then-current 89 tests, including the
+real SKA2 integration test, on 2026-10-02. Retain the checkout commit with the results; the configured
 container digest identifies the baseline image rather than the mounted code.
 
 `--platform linux/amd64` is required on Apple Silicon (`quast=5.3.0` has no `linux/arm64` build for the pinned Python 3.11); it runs fine under emulation there.

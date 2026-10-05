@@ -1,16 +1,22 @@
 {
-  "policy_version": "1.1.0",
+  "policy_version": "2.0.0",
   "comparability": {
     "min_shared_split_kmers": 100000,
     "max_mismatch_proportion": 0.1
   },
   "expansion": {
-    "cluster_priority": "nearest_then_selected_rank",
     "batch_size": 25,
     "max_additional_reference_attempts": 100,
     "max_rounds": 8,
     "max_total_genomes": 200,
     "stable_rounds_to_stop": 2,
-    "max_metadata_file_bytes": 1073741824
-  }
+    "max_metadata_file_bytes": 1073741824,
+    "allocation_strategy": "focused_balanced_v2",
+    "leading_share": 0.75,
+    "alternative_min_slots": 2,
+    "unresolved_priority_slots": 1,
+    "min_focused_qualifying_per_leader": 20,
+    "complete_finite_leader_pool": true
+  },
+  "profile": "focused-default-v2"
 }
