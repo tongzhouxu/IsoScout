@@ -66,28 +66,63 @@ The MUMmer alternative uses `nucmer --maxmatch`, one-to-one `delta-filter -1`,
 mappings and reports alignment-interval coverage and indel bases. Its distances
 need not equal minimap2, SKA or another filtered SNP pipeline.
 
-Rank qualifying candidates by observed SNP count, preserving all exact ties.
-Also report the minimum SNP rate per aligned target Mb. If the minimum sets do
-not overlap, mark the closest-genome conclusion unresolved across these metrics.
-Never blend them into an unvalidated composite score or use coverage to silently
-break a SNP-count tie. The result is the nearest by the declared metric among
-examined qualifying candidates; it is not an exhaustive global nearest-genome
-answer, whole-genome identity, or outbreak confirmation.
+## Shared-region ranking and unresolved alternatives
 
-`cluster_status` and `genome_status` describe different conclusions. A cluster
-is `RESOLVED` when every reference in the count-minimum and aligned-rate-minimum
-sets has the same stored cluster label, even if several genomes tie or the two
-metrics choose different genomes. Multiple supported labels leave the cluster
-`AMBIGUOUS`; no qualifying evidence yields `INSUFFICIENT_DATA`. `cluster_candidates`
-retains the union of labels and `nearest_cluster` is populated only for a resolved
-cluster. `nearest_clusters` still describes count minima, preserving the
-expansion rule. Labels belong to the recorded database release; this does not
-compare them with an independent reference standard or translate newer releases.
+Policy 2.0.0 ranks all qualifying references using the **same target positions**:
+the intersection of their recorded target alignment intervals. SNPs are recounted
+from checksum-verified per-position evidence; no additional alignment or
+candidate-to-candidate matrix is constructed. Every reference uses the same
+denominator. Raw pair-specific SNP counts and rates remain diagnostic records
+because similar coverage percentages do not imply that the same positions were
+compared. No reference is removed to improve the intersection or its ranking.
+
+The shared mask must satisfy the policy's existing minimum target-coverage
+fraction (85% by default). This conservative default is an explicit software
+criterion, not an empirically calibrated strain threshold. If it is not met,
+return `INSUFFICIENT_DATA`, with no nearest sample or cluster. Expansion stops at
+`insufficient_shared_target_regions`: adding candidates cannot enlarge the
+intersection. This can increase unresolved outcomes; there is no silent fallback
+to incomparable pair counts. The shared mask describes aligned sequence, not an
+exact callable-site mask, recombination-masked core genome or NCBI SNP distance.
+
+A coverage-excluded reference with no larger pair-specific SNP count **or** rate
+than a shared-region winner is a potentially competitive alternative. It is not
+promoted into the ranking, but prevents a resolved nearest-genome claim. If its
+stored label differs from the winning label, or is unknown, the cluster conclusion
+also remains ambiguous. The guard identifies uncertainty; it does not establish
+that the excluded reference is closer. A same-cluster alternative can leave the
+cluster resolved while the genome remains unresolved.
+
+`ranked[].ranking_snp_distance` and `nearest_snp_distance` contain shared-region
+counts. `ranked[].snp_distance` retains the original pair-specific count.
+`shared_regions` records the exact mask, its checksum, target identity, evidence
+checksums, participating references, aligned bases and coverage. Missing, corrupt
+or inconsistent position evidence fails rather than assigning zero distance.
+`pair_specific_diagnostics` retains the former count/rate minima for audit only.
+The compatibility field `nearest_by_aligned_snp_rate` now names the shared-region
+rate minima, which necessarily equal the count minima on the same denominator.
+
+`cluster_status` and `genome_status` describe separate conclusions. Preserve exact
+genome ties and all cross-cluster ambiguity. `coverage_blockers` records competitive
+excluded alternatives, and `cluster_candidates` includes their known labels.
+`nearest_cluster` is populated only when the cluster conclusion is resolved;
+`nearest_sample` only when the genome conclusion is resolved. `nearest_samples`
+and `nearest_clusters` retain the qualifying minimum sets even when an excluded
+alternative prevents resolution; never use those fields alone as a resolved call.
+
+Every result is conditional on the examined reference pool. `search_scope`
+records retrieval truncation, unexamined returned references and missing downloads.
+Expansion searches selected returned clusters; it does not prove that an unseen
+cluster is absent or more distant. Sampled stability is reset when the common
+mask changes and is blocked by competitive exclusions. Neither a stable result
+nor a shared-region minimum establishes global nearest-genome recovery, strain
+identity or outbreak membership. Stored labels belong to the recorded database
+release and are not automatically translated to newer releases.
 
 Detailed per-base calls remain in the pair cache alongside raw alignment files;
 round and user-facing summaries contain compact per-candidate measurements.
 Every round records backend, effective policy, tool hashes, successful jobs,
-cache hits, failures and timings. Reports show candidate SNPs with target and
+cache hits, failures and timings. Reports separate shared-region and pair-specific SNP counts, with target and
 candidate coverage; the full interpretation retains the pair-level records and
 all exclusions. A target-only distance list cannot be used to invent a complete
 matrix or phylogenetic tree.

@@ -136,3 +136,10 @@ comparisons. The split-kmer criteria above apply only to SKA. Assembly coverage,
 variant rules, and alternative MUMmer settings are documented in
 [assembly-comparison.md](assembly-comparison.md). New batches reuse previous
 alignments; expansion does not require a pairwise matrix or tree.
+
+For assembly backends, common-region ranking is rebuilt from saved target-relative
+calls after expansion. A changed region mask resets stability; potentially
+competitive excluded alternatives prevent a stability stop. If the intersection
+of qualifying target regions is already below the recorded coverage criterion,
+stop at `insufficient_shared_target_regions` rather than downloading more members
+to attempt to enlarge an intersection. See [assembly-comparison.md](assembly-comparison.md).

@@ -16,6 +16,7 @@ from run_mummer import run_mummer,union_length
 from fetch_reference_genomes import fetch_genomes,read_local_manifest
 from interpret_assembly_comparison import interpret
 from generate_report import generate_report
+from site_fixture import comparison
 
 class PairTests(unittest.TestCase):
     def setUp(self):
@@ -82,45 +83,14 @@ class PairTests(unittest.TestCase):
             exe.assert_not_called()
     def test_ties_low_coverage_and_metric_conflict_remain_visible(self):
         def row(name,snps,covered):
-            return {"sample":name,"status":"COMPARED","snp_distance":snps,"target_aligned_bases":covered,"candidate_aligned_bases":covered,"target_aligned_fraction":covered/1000,"candidate_aligned_fraction":covered/1000,"snps_per_target_aligned_mb":snps*1e6/covered}
+            return comparison(self.root,name,snps,covered)
         targets=[{"accession":name,"cluster":"C1"} for name in "ABC"]
         result=interpret([row("A",0,500),row("B",3,1000),row("C",3,1000)],targets,"C1",self.policy)
         self.assertEqual(result["nearest_samples"],["B","C"]);self.assertEqual(result["excluded_comparisons"][0]["sample"],"A")
         self.assertIsNone(result["nearest_sample"]);self.assertIsNone(result["newick_tree"])
         result=interpret([row("A",100,850),row("B",110,1000)],targets,"C1",self.policy)
-        self.assertTrue(result["ranking_basis_conflict"]);self.assertIsNone(result["nearest_sample"])
-
-class ClusterResolutionTests(unittest.TestCase):
-    def compare(self, specs):
-        rows=[];targets=[]
-        for sample, cluster, snps, covered in specs:
-            rows.append({"sample":sample,"status":"COMPARED","snp_distance":snps,
-                         "target_aligned_bases":covered,"candidate_aligned_bases":covered,
-                         "target_aligned_fraction":covered/1000,"candidate_aligned_fraction":covered/1000,
-                         "snps_per_target_aligned_mb":snps*1e6/covered})
-            targets.append({"accession":sample,"cluster":cluster})
-        return interpret(rows,targets,"C1",load_json(ROOT/"config/assembly-comparison-policy.json"))
-    def test_tied_genomes_can_resolve_one_cluster(self):
-        d=self.compare([("A","C1",3,1000),("B","C1",3,1000)])
-        self.assertEqual((d["cluster_status"],d["genome_status"]),("RESOLVED","AMBIGUOUS"))
-        self.assertEqual(d["nearest_cluster"],"C1");self.assertIsNone(d["nearest_sample"])
-    def test_metric_conflict_within_one_cluster_resolves_only_cluster(self):
-        d=self.compare([("A","C1",100,850),("B","C1",110,1000)])
-        self.assertTrue(d["ranking_basis_conflict"])
-        self.assertEqual(d["nearest_by_aligned_snp_rate"],["B"])
-        self.assertEqual((d["cluster_status"],d["genome_status"]),("RESOLVED","AMBIGUOUS"))
-        self.assertEqual(d["nearest_cluster"],"C1")
-    def test_metric_conflict_across_clusters_remains_unresolved(self):
-        d=self.compare([("A","C1",100,850),("B","C2",110,1000)])
-        self.assertEqual(d["cluster_status"],"AMBIGUOUS");self.assertIsNone(d["nearest_cluster"])
-        self.assertEqual(d["cluster_candidates"],["C1","C2"])
-    def test_cross_cluster_tie_is_not_resolved_by_order(self):
-        d=self.compare([("A","C2",3,1000),("B","C1",3,1000)])
-        self.assertEqual(d["cluster_status"],"AMBIGUOUS");self.assertIsNone(d["nearest_cluster"])
-    def test_failed_coverage_is_not_cluster_evidence(self):
-        d=self.compare([("A","C1",0,500)])
-        self.assertEqual((d["cluster_status"],d["genome_status"]),("INSUFFICIENT_DATA","INSUFFICIENT_DATA"))
-        self.assertEqual(d["cluster_candidates"],[])
+        self.assertFalse(result["ranking_basis_conflict"]);self.assertEqual(result["nearest_sample"],"A")
+        self.assertEqual(result["pair_specific_diagnostics"]["minimum_rate_samples"],["B"])
 
 @unittest.skipUnless(os.environ.get("ISOSCOUT_TOOL_TESTS")=="1","Set ISOSCOUT_TOOL_TESTS=1 with pinned tools")
 class MummerIntegrationTests(unittest.TestCase):

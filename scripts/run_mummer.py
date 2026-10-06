@@ -16,6 +16,7 @@ import subprocess
 import time
 from typing import Any
 from common import CONFIG_DIR, WorkflowError, load_json, require_executable, sha256_file, write_json
+from shared_target_regions import save_evidence
 
 
 def key_for(value: Any) -> str:
@@ -104,7 +105,7 @@ def parse_pair(directory: Path, target_lengths: dict, candidate_lengths: dict) -
     ca = sum(union_length(v) for v in candidate_intervals.values())
     if snps and not ta:
         raise WorkflowError("SNPs without aligned bases")
-    return {"snp_distance":len(snps), "indel_bases":indels, "ambiguous_difference_rows":ambiguous,
+    return {"snp_positions":sorted(snps), "target_unique_alignment_intervals":target_intervals, "snp_distance":len(snps), "indel_bases":indels, "ambiguous_difference_rows":ambiguous,
             "target_aligned_bases":ta, "candidate_aligned_bases":ca,
             "target_bases":sum(target_lengths.values()), "candidate_bases":sum(candidate_lengths.values()),
             "target_aligned_fraction":ta/sum(target_lengths.values()),
@@ -185,8 +186,9 @@ def compare_pair(target: Path, candidate: Path, cache: Path, policy: dict, tools
         if hit:
             metrics = (record["metrics"] if record.get("parser_sha256")==parser_hash
                        else parse_pair(directory,target_lengths,fasta_lengths(candidate)))
-    summary = {k: v for k, v in metrics.items() if k != "snp_positions"}
-    return {**summary,"status":"COMPARED","cache_key":cache_key,"cache_hit":hit,
+        evidence=save_evidence(directory/"site_evidence.json",metrics,target_hash,candidate_hash,target_lengths)
+    summary = {k: v for k, v in metrics.items() if k not in {"snp_positions","target_unique_alignment_intervals"}}
+    return {**summary,"site_evidence":evidence,"status":"COMPARED","cache_key":cache_key,"cache_hit":hit,
             "target_sha256":target_hash,"candidate_sha256":candidate_hash,"artifact_directory":str(directory),
             "commands":commands,"elapsed_seconds":time.monotonic()-started}
 

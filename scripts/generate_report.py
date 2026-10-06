@@ -214,6 +214,19 @@ def _snp_section(result: dict[str, Any]) -> list[str]:
     if status == "ERROR":
         lines.append(f"Failed: {snp.get('error', 'unknown error')}")
         return lines
+    if backend in {"mummer", "minimap2"} and snp.get("ranking_basis") == "shared_target_regions":
+        shared = snp.get("shared_regions") or {}
+        lines.extend([
+            "**Comparison basis:** the same target regions for every qualifying reference.",
+            f"Shared target coverage: {100*shared.get('shared_target_fraction', 0):.2f}%; "
+            f"status: {shared.get('status', 'unavailable')}.",
+            "**Scope:** examined references only. A cluster outside the retrieved pool may be closer.", "",
+        ])
+        if snp.get("coverage_blockers"):
+            lines.append("**Unresolved excluded alternatives:** " + ", ".join(row["sample"] for row in snp["coverage_blockers"]) +
+                         ". Coverage exclusion is not evidence that these references are more distant.")
+        if status == "INSUFFICIENT_DATA":
+            lines.append(snp.get("confidence", {}).get("statement", "No resolved comparison."))
     if status not in {"COMPARED", "AMBIGUOUS", "RESOLVED"}:
         lines.append(f"Status: {status}")
         return lines
@@ -231,20 +244,20 @@ def _snp_section(result: dict[str, Any]) -> list[str]:
     if backend in {"mummer","minimap2"}:
         lines.extend([
             "**Cluster resolution:** " + snp.get("cluster_status","not recorded") +
-            "; count/rate-supported cluster label(s): " + ", ".join(snp.get("cluster_candidates",nearest_clusters)) + ".",
+            "; candidate stored cluster label(s), including unresolved alternatives: " + ", ".join(snp.get("cluster_candidates",nearest_clusters)) + ".",
             "**Genome resolution:** " + snp.get("genome_status","not recorded") + ". Cluster labels are from the recorded database release.", "",
         ])
         lines.extend([
             f"Each candidate was aligned directly to the target assembly using {backend}. No candidate-to-candidate matrix was calculated.", "",
             snp.get("confidence",{}).get("statement","No qualifying comparisons."), "",
-            "| Candidate | Cluster | SNPs | Indel bases | Target aligned (%) | Candidate aligned (%) |",
+            "| Candidate | Cluster | Shared-region SNPs | Pair-specific SNPs | Target aligned (%) | Candidate aligned (%) |",
             "|---|---|---:|---:|---:|---:|",
         ])
         for row in snp.get("ranked",[])[:TOP_N_GENOMES]:
-            lines.append(f"| {row['sample']} | {row['cluster']} | {row['snp_distance']} | {row['indel_bases']} | "
+            lines.append(f"| {row['sample']} | {row['cluster']} | {row.get('ranking_snp_distance', 'not available')} | {row['snp_distance']} | "
                          f"{100*row['target_aligned_fraction']:.2f} | {100*row['candidate_aligned_fraction']:.2f} |")
         lines.extend(["", "All minimum-SNP-count ties: " + ", ".join(snp.get("nearest_samples",[])),
-                      "Minimum SNP rate per aligned target Mb: " + ", ".join(snp.get("nearest_by_aligned_snp_rate",[])), ""])
+                      "Minimum SNP rate on the same shared target regions: " + ", ".join(snp.get("nearest_by_aligned_snp_rate",[])), ""])
         if snp.get("ranking_basis_conflict"):
             lines.append("**Closest-genome conclusion unresolved:** SNP-count and aligned-SNP-rate minima disagree.")
         if (snp.get("ranking_image") or {}).get("status")=="PASS":

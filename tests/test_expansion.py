@@ -237,6 +237,21 @@ class FocusedSchedulerTests(unittest.TestCase):
         self.assertFalse(result["stable"])
         self.assertIn("C3", result["unresolved_alternatives_with_pending_references"])
 
+    def test_shared_mask_change_and_competitive_exclusion_reset_stability(self):
+        previous = self.interpretation(qualifying=[("REP", "C1")])
+        current = self.interpretation(qualifying=[("REP", "C1"), ("NEW", "C1")])
+        coverage = [{"cluster": "C1", "qualifying_additional": 20, "unexamined_additional": 0}]
+        previous["shared_regions"] = {"mask_sha256": "before"}
+        current["shared_regions"] = {"mask_sha256": "after"}
+        result = assess_progress(previous, current, coverage, self.policy, False, 1)
+        self.assertFalse(result["stable"])
+        self.assertEqual(result["reason"], "shared_target_regions_changed")
+        current["shared_regions"] = previous["shared_regions"]
+        current["coverage_blockers"] = [{"sample": "EXCLUDED", "cluster": "C2"}]
+        result = assess_progress(previous, current, coverage, self.policy, False, 1)
+        self.assertEqual(result["reason"], "unresolved_coverage_exclusion")
+        self.assertEqual(result["stable_rounds"], 0)
+
     def test_determinism_dedup_self_exclusion_and_strict_budget(self):
         members = ([{"accession": f"A{i}", "cluster": "C1"} for i in range(5)]
                    + [{"accession": "A1", "cluster": "C1"}, {"accession": "SELF", "cluster": "C2"},

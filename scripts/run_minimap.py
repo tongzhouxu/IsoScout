@@ -12,6 +12,7 @@ import subprocess
 import time
 from common import CONFIG_DIR,WorkflowError,load_json,require_executable,sha256_file,write_json
 from run_mummer import key_for,fasta_lengths,union_length,command_run
+from shared_target_regions import save_evidence
 
 
 def prepare_paf(path: Path, output: Path, tl: dict, ql: dict, policy: dict) -> dict:
@@ -82,7 +83,7 @@ def parse_calls(path: Path, tl: dict) -> dict:
     aligned=sum(union_length(v) for v in intervals.values())
     return {'snp_distance':len(positions),'indel_bases':indels,'ambiguous_difference_rows':ambiguous,
             'target_aligned_bases':aligned,
-            'target_unique_alignment_intervals':intervals}
+            'target_unique_alignment_intervals':intervals, 'snp_positions':sorted(positions)}
 
 
 def compare_pair(target,candidate,cache,policy,tools,target_hash,tl):
@@ -123,8 +124,9 @@ def compare_pair(target,candidate,cache,policy,tools,target_hash,tl):
                            snps_per_target_aligned_mb=metrics['snp_distance']*1e6/ta if ta else None,
                            rate_denominator='target bases covered uniquely by qualifying alignments; not a callable-site count')
             write_json(metric_file,{'metrics':metrics,'artifacts':{n:sha256_file(call_dir/n) for n in ('variants.tsv','eligible.paf')}})
+        evidence=save_evidence(call_dir/'site_evidence.json',metrics,target_hash,ch,tl)
     summary = {k: v for k, v in metrics.items() if k not in {'snp_positions', 'target_unique_alignment_intervals'}}
-    return {**summary,'status':'COMPARED','cache_key':key,'cache_hit':hit,'interpretation_cache_hit':bool(metrics_hit),
+    return {**summary,'site_evidence':evidence,'status':'COMPARED','cache_key':key,'cache_hit':hit,'interpretation_cache_hit':bool(metrics_hit),
             'target_sha256':target_hash,'candidate_sha256':ch,'artifact_directory':str(directory),'calls_directory':str(call_dir),
             'commands':commands,'elapsed_seconds':time.monotonic()-started}
 

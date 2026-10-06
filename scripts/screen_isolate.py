@@ -65,7 +65,7 @@ def summary_text(result: dict[str, Any]) -> str:
             "Recommended next step: Run a validated high-resolution SNP comparison against representative isolates.",
         ])
     snp = result.get("snp_resolution")
-    if snp and snp.get("ranked"):
+    if snp and snp.get("ranked") and snp.get("nearest_snp_distance") is not None:
         lines.append(
             f"{snp.get('backend', 'ska2').upper()} comparison: minimum observed distance {snp['nearest_snp_distance']:.2f} SNPs; "
             f"{len(snp.get('nearest_samples', []))} equally nearest reference(s). "
@@ -83,6 +83,11 @@ def summary_text(result: dict[str, Any]) -> str:
         uncertainty = (snp.get("expansion") or {}).get("remaining_uncertainty") or {}
         if uncertainty.get("budget_or_round_limit_prevented_required_exploration"):
             lines.append("Focused or alternative exploration remained incomplete at the resource or round limit.")
+    if snp and snp.get("ranking_basis") == "shared_target_regions":
+        shared = snp.get("shared_regions") or {}
+        lines.append("Shared-region comparison: " + shared.get("status", "unavailable") +
+                     ". Cluster resolution: " + snp.get("cluster_status", "INSUFFICIENT_DATA") + ".")
+        lines.append(snp.get("confidence", {}).get("statement", ""))
     if result.get("stop_reason"):
         lines.append(f"Analysis stopped: {result['stop_reason']}")
     warnings = result.get("warnings", [])
@@ -196,6 +201,15 @@ def run_snp_resolution(
             "nearest_snp_distance": interpretation.get("nearest_snp_distance"),
             "excluded_comparisons": interpretation.get("excluded_comparisons", []),
         }
+        shared = interpretation.get("shared_regions") or {}
+        if shared.get("basis") == "intersection_of_all_qualifying_target_regions" and shared.get("status") != "SUFFICIENT":
+            stop_reason = "insufficient_shared_target_regions"
+            record["feedback"] = {"action": "STOP", "reason": stop_reason, "stable": False}
+            record["allocation"] = {"chosen": [], "not_requested_reason": stop_reason}
+            rounds.append(record)
+            write_json(round_dir / "interpretation.json", interpretation)
+            write_json(round_dir / "round.json", record)
+            break  # Adding references cannot enlarge this intersection.
         if not expand:
             record["feedback"] = {"action": "STOP", "reason": "representatives_only"}
             rounds.append(record)
@@ -360,6 +374,14 @@ def run_snp_resolution(
         "query_self_excluded_from_members": bool(query_accession and membership and membership["status"] == "AVAILABLE" and any(row["accession"] == query_accession for row in membership["members"])),
         "clusters": cluster_coverage,
         "omission_interpretation": "Unattempted or unavailable references are resource/availability gaps, not evidence of SNP dissimilarity.",
+    }
+    interpretation["search_scope"] = {
+        "scope": "examined_reference_pool_only",
+        "retrieval_limit_reached": targets_result.get("retrieval_limit_reached", False),
+        "returned_unexamined_count": len(interpretation["coverage"]["returned_unexamined"]),
+        "unavailable_count": len(unavailable),
+        "global_nearest_established": False,
+        "interpretation": "Expansion explores selected returned clusters. It cannot establish the absence of a closer cluster outside the retrieved pool.",
     }
     interpretation["query_input"] = {"type": "paired_reads" if query_reads else "assembly", "paths": query_reads if query_reads else [str(assembly)]}
     interpretation["file_checksums"] = [

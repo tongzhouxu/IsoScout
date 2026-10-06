@@ -199,8 +199,12 @@ def assess_progress(
                  if focused.get(cluster, 0) < policy["min_focused_qualifying_per_leader"] and pending.get(cluster, 0)]
     if not current.get("ranked"):
         reason = "no_qualifying_evidence_continue_broad"
+    elif current.get("coverage_blockers"):
+        reason = "unresolved_coverage_exclusion"
     elif previous is None:
         reason = "initial_focused_exploration"
+    elif (current.get("shared_regions") or {}).get("mask_sha256") != (previous.get("shared_regions") or {}).get("mask_sha256"):
+        reason = "shared_target_regions_changed"
     elif current.get("nearest_snp_distance") != previous.get("nearest_snp_distance") or set(current.get("nearest_samples", [])) != set(previous.get("nearest_samples", [])):
         reason = "nearest_result_changed"
     elif not new_qualifying:

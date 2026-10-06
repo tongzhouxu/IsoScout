@@ -1,5 +1,5 @@
 {
-  "policy_version": "1.0.0",
+  "policy_version": "2.0.0",
   "backend": "minimap2",
   "alignment": {
     "preset": "asm5"
@@ -12,11 +12,15 @@
     "workers": 4,
     "command_timeout_seconds": 600
   },
-  "criteria_source": "IsoScout assembly-comparison v1: 85% target and candidate alignment coverage and 500 bp minimum alignment are explicit workflow criteria, not user requirements or strain cutoffs. Mapping quality 5 follows paftools call defaults. No density or contig-edge SNP filtering.",
+  "criteria_source": "IsoScout assembly-comparison v2: 85% target and candidate alignment coverage and 500 bp minimum alignment are explicit workflow criteria, not user requirements or strain cutoffs. Mapping quality 5 follows paftools call defaults. No density or contig-edge SNP filtering. Ranking now uses the intersection of qualifying target regions, with the same recorded target-coverage floor. Excluded alternatives with no larger raw SNP count or rate block a resolved genome conclusion; a different or unknown label also blocks cluster resolution.",
   "metric": "ACGT substitutions called by paftools in uniquely covered target regions; indels reported separately",
   "minimap2_version": "2.31-r1302",
   "variant_calling": {
     "min_alignment_length": 500,
     "min_mapping_quality": 5
+  },
+  "ranking": {
+    "basis": "shared_target_regions",
+    "coverage_exclusion_guard": true
   }
 }
