@@ -17,16 +17,19 @@ class MinimapIntegrationTests(unittest.TestCase):
             root=Path(temp);rng=random.Random(842)
             seq="".join(rng.choices("ACGT",k=150000))
             a=list(seq);a[10000]="A" if a[10000]!="A" else "C";a="".join(a)
-            variants={"QUERY":seq,"ONE":a,"TIE":a,"RC":a.translate(str.maketrans("ACGT","TGCA"))[::-1],"INDEL":a[:30000]+"AGTCA"+a[30000:],"N":a[:50000]+"NNNNN"+a[50005:],"SHORT":a[:20000]}
+            variants={"QUERY":seq,"ONE":a,"TIE":a,"RC":a.translate(str.maketrans("ACGT","TGCA"))[::-1],"INDEL":a[:30000]+"AGTCA"+a[30000:],"N":a[:50000]+"NNNNN"+a[50005:],"SHORT":a[:20000],"DELETION":a[:70000]+a[70100:]}
             genomes={}
             for name,sequence in variants.items():
                 p=root/(name+".fna");p.write_text(">contig\n"+sequence+"\n");genomes[name]=str(p)
             result=run_minimap(genomes,root/"run",root/"cache")
             self.assertEqual(result["status"],"PASS",result)
             by={row["sample"]:row for row in result["comparisons"]}
-            for name in ("ONE","TIE","RC","INDEL","N"):
+            for name in ("ONE","TIE","RC","INDEL","N","DELETION"):
                 self.assertEqual(by[name]["snp_distance"],1,(name,by[name]))
             self.assertEqual(by["INDEL"]["indel_bases"],5)
+            self.assertEqual(by["DELETION"]["target_comparable_bases"],len(seq)-100)
+            evidence=load_json(Path(by["DELETION"]["site_evidence"]["path"]))
+            self.assertFalse(any(lo<=70001<=hi or lo<=70100<=hi for lo,hi in evidence["regions"]["contig"]))
             self.assertEqual(by["N"]["ambiguous_difference_rows"],0)  # paftools suppresses N differences upstream.
             targets=[{"accession":name,"cluster":"C1"} for name in variants if name!="QUERY"]
             interpreted=interpret(result["comparisons"],targets,"C1",result["policy"])
@@ -35,9 +38,19 @@ class MinimapIntegrationTests(unittest.TestCase):
             self.assertIsNone(interpreted["nearest_sample"])
             again=run_minimap(genomes,root/"again",root/"cache")
             self.assertEqual(again["alignment_jobs"],0)
-            self.assertEqual(again["cache_hits"],6)
+            self.assertEqual(again["cache_hits"],7)
 
 class CallParserTests(unittest.TestCase):
+    def test_deletion_span_is_not_zero_snp_matching_sequence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            p=Path(tmp)/'calls.tsv'
+            p.write_text('R\tref\t0\t1000\nV\tref\t200\t800\t1\t60\t'+'A'*600+'\t-\tquery\t200\t200\t+\n')
+            row=parse_calls(p,{'ref':1000})
+            self.assertEqual(row['target_aligned_bases'],1000)
+            self.assertEqual(row['target_comparable_bases'],400)
+            self.assertEqual(row['target_comparison_intervals'],{'ref':[(1,200),(801,1000)]})
+            self.assertEqual(row['indel_bases'],600)
+
     def test_overlapping_variants_are_excluded_and_unique_regions_counted(self):
         with tempfile.TemporaryDirectory() as tmp:
             p=Path(tmp)/"calls.tsv"

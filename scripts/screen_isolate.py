@@ -83,8 +83,8 @@ def summary_text(result: dict[str, Any]) -> str:
         uncertainty = (snp.get("expansion") or {}).get("remaining_uncertainty") or {}
         if uncertainty.get("budget_or_round_limit_prevented_required_exploration"):
             lines.append("Focused or alternative exploration remained incomplete at the resource or round limit.")
-    if snp and snp.get("ranking_basis") == "candidate_anchor_shared_regions":
-        lines.append("Shared-position candidate challenges: cluster " + snp.get("cluster_status", "INSUFFICIENT_DATA") +
+    if snp and snp.get("ranking_basis") == "common_finalist_regions":
+        lines.append("Common-region finalist comparison: cluster " + snp.get("cluster_status", "INSUFFICIENT_DATA") +
                      "; genome " + snp.get("genome_status", "INSUFFICIENT_DATA") + ".")
         lines.append("Supported stored cluster: " + (snp.get("nearest_cluster") or "unresolved") + ".")
         lines.append(snp.get("confidence", {}).get("statement", ""))

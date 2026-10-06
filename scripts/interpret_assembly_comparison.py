@@ -7,8 +7,8 @@ from shared_target_regions import challenge_candidates
 
 def interpret(comparisons, targets, best_cluster, policy):
     ranking = policy.get('ranking') or {}
-    if ranking.get('basis') != 'candidate_anchor_shared_regions':
-        raise WorkflowError('Assembly policy must select candidate_anchor_shared_regions')
+    if ranking.get('basis') != 'common_finalist_regions':
+        raise WorkflowError('Assembly policy must select common_finalist_regions')
     mapping = {row['accession']: row['cluster'] for row in targets}
     usable, excluded, warnings = [], [], []
     criteria = policy['comparability']
@@ -30,8 +30,8 @@ def interpret(comparisons, targets, best_cluster, policy):
     if excluded:
         warnings.append(f'{len(excluded)} failed or unaligned references remain unresolved alternatives.')
     result = {'backend':policy['backend'],'comparison_scope':'target_to_candidate',
-              'metric':'paired target SNP counts on shared positions for each anchor challenge',
-              'ranking_basis':'candidate_anchor_shared_regions',
+              'metric':'SNP counts on common finalist regions with lower bounds for outside candidates',
+              'ranking_basis':'common_finalist_regions',
               'comparability_policy':criteria,'criteria_source':policy['criteria_source'],
               'ranked':usable,'excluded_comparisons':excluded,'query_comparisons':comparisons,
               'newick_tree':None,'tree_status':'NOT_REQUESTED','warnings':warnings,
@@ -52,22 +52,21 @@ def interpret(comparisons, targets, best_cluster, policy):
     supported = audit['supported_samples']
     uncertain = sorted(set(audit['unresolved_samples']) | {r['sample'] for r in excluded})
     decision = sorted(set(supported) | set(uncertain))
-    # Cluster and genome resolution are distinct. A verified pass may lose only
-    # to references carrying the same stored cluster label while strictly
-    # beating every reference outside that cluster. That witnesses a cluster
-    # conclusion even when the within-cluster genome comparisons form a cycle.
+    # A cluster witness uses one recorded mask: every reference that could
+    # meet its minimum has the same stored label. No expected label is provided.
     witnesses = []
-    for step in audit['verification_passes']:
+    steps = audit['verification_passes'][-1:] if audit['status'] == 'VERIFIED' else audit['verification_passes']
+    for step in steps:
+        alternatives = sorted(set(step['potential_samples']) | set(audit.get('region_sensitivity',{}).get('alternatives',[])) | {r['sample'] for r in excluded})
         label = by[step['anchor']]['cluster']
-        alternatives = sorted(set(step['defeaters'] + step['tied'] + step['unresolved']) |
-                              {r['sample'] for r in excluded})
-        if label and by[step['anchor']]['target_aligned_bases'] >= ranking['min_shared_bases'] and all(by[name]['cluster'] == label for name in alternatives):
-            witnesses.append({'anchor':step['anchor'],'cluster':label,
+        if label and all(by[name]['cluster'] == label for name in alternatives):
+            witnesses.append({'anchor':step['anchor'],'cluster':label,'mask_sha256':step['mask_sha256'],
+                              'shared_target_bases':step['shared_target_bases'],
                               'same_cluster_unresolved_or_competing_samples':alternatives,
                               'external_references_strictly_beaten':sum(r['cluster'] != label for r in usable)})
     witness_labels = {w['cluster'] for w in witnesses}
     if len(witness_labels) > 1:
-        raise WorkflowError('Conflicting cluster verification witnesses')
+        witnesses = []  # Conflicting masks cannot certify one cluster.
     if witnesses and audit['status'] != 'VERIFIED':
         decision = sorted({name for w in witnesses for name in [w['anchor'], *w['same_cluster_unresolved_or_competing_samples']]})
     labels = sorted({by[name]['cluster'] for name in decision if by[name]['cluster']})
@@ -78,10 +77,12 @@ def interpret(comparisons, targets, best_cluster, policy):
     minimum_labels = sorted({by[name]['cluster'] for name in supported if by[name]['cluster']})
     if witnesses and not certified:
         minimum_labels = sorted(witness_labels)
+    if audit.get('region_sensitivity',{}).get('alternatives'):
+        warnings.append('The nearest-reference preference changes when additional aligned regions are included. Those alternatives remain in the final decision; one favorable region mask cannot establish a robust closest match.')
     if uncertain:
         warnings.append('Some candidate comparisons are unresolved. These alternatives are retained in the cluster conclusion rather than discarded.')
     if not certified:
-        warnings.append('No individual reference passed bounded verification against every candidate. Genome resolution remains ambiguous; cluster support is reported separately.')
+        warnings.append('Common-region verification did not reach a supported fixed point. Genome resolution remains ambiguous; cluster support is reported separately.')
     rank_order = {name:0 if name in supported else 1 if name in uncertain else 2 for name in by}
     displayed = sorted(usable,key=lambda r:(rank_order[r['sample']],r['sample']))
     for row in displayed:
@@ -95,16 +96,21 @@ def interpret(comparisons, targets, best_cluster, policy):
                   genome_status='RESOLVED' if genome_resolved else 'AMBIGUOUS',
                   cluster_candidates=labels,decision_reference_samples=decision,
                   cluster_certificate={'status':'VERIFIED' if witnesses else 'NOT_ESTABLISHED',
-                                       'basis':'witness_strictly_beats_every_external_cluster_reference',
+                                       'basis':'all_potential_minima_on_one_recorded_mask_have_one_cluster_label',
                                        'witnesses':witnesses},
                   coverage_blockers=[{'sample':name,'cluster':by[name]['cluster'],'reason':'unresolved_candidate_evidence'} for name in uncertain],
                   agrees_with_mash_top_candidate=labels[0] == best_cluster if cluster_resolved and best_cluster else None)
+    panel = audit.get('finalist_panel') or {}
+    result['finalist_panel'] = panel
+    for row in result['ranked']:
+        row['finalist_snp_distance'] = panel.get('snp_counts',{}).get(row['sample'])
     result['confidence']={'statement':
-        ('The supported reference has no observed challenger with fewer SNPs on the target regions shared by that pair. '
-         if certified else 'No closest reference was verified against all examined candidates. ')+
-        ('A cluster witness strictly beats every examined reference outside its stored cluster; within-cluster alternatives remain unresolved. '
-         if cluster_resolved and not certified else '')+
-        'Each comparison records both SNP counts and its shared sequence length. Low coverage alone does not exclude a candidate. '
-        'Small or poorly overlapping comparisons remain unresolved. There is no single SNP distance comparable across all rows, '
-        'and this result does not establish NCBI cluster membership, strain identity or a globally closest genome.'}
+        ('The finalists are compared on one identical set of target positions. Every outside candidate has been rechecked against that mask. '
+         if certified else 'The bounded common-region comparison did not establish a unique nearest-genome conclusion. ')+
+        ('A recorded common-region witness supports the stored cluster while genome alternatives remain unresolved. '
+         if cluster_resolved and not genome_resolved else '')+
+        'Observed SNP counts for partly overlapping alternatives are lower bounds on the panel region, not complete distances. '
+        'A lower bound greater than the panel minimum rules out that alternative on these positions. '
+        'A check on the larger pairwise shared regions retains contradictory candidates as unresolved alternatives. '
+        'Other insufficient overlaps remain unresolved. Conclusions apply only to examined references and do not establish NCBI membership, strain identity or a globally closest genome.'}
     return result

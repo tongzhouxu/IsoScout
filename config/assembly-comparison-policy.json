@@ -1,5 +1,5 @@
 {
-  "policy_version": "3.0.0",
+  "policy_version": "4.1.0",
   "backend": "minimap2",
   "alignment": {
     "preset": "asm5"
@@ -12,7 +12,7 @@
     "workers": 4,
     "command_timeout_seconds": 600
   },
-  "criteria_source": "Coverage fractions of 85% are informational reporting references only and never exclude candidates. Shared-position challenges require at least 100,000 aligned target bases and half of the larger pairwise aligned target span. These provisional evidence floors are not calibrated strain cutoffs; failing them keeps an alternative unresolved rather than promoting another reference. At most three verification passes use cached target calls. No density or contig-edge SNP masking is applied.",
+  "criteria_source": "Coverage fractions of 85% are informational only. Competing finalists are compared on one common target mask; admission requires 100,000 bases and half of the larger aligned span. An outsider with at least 100,000 shared bases is ruled out when its observed SNP lower bound exceeds the panel minimum, regardless of fractional overlap. Other insufficient overlaps remain unresolved. At most three panel verification passes recheck all outsiders after mask changes. Evidence guards are provisional, not calibrated strain cutoffs. No density or contig-edge SNP masking. One additional linear pass tests whether larger pairwise shared regions contradict the final-panel preference; conflicting alternatives prevent a unique conclusion. Target-coordinate deletions and reported ambiguous differences are removed from shared SNP-comparison regions; alignment extent remains a separate coverage diagnostic.",
   "metric": "ACGT substitutions called by paftools in uniquely covered target regions; indels reported separately",
   "minimap2_version": "2.31-r1302",
   "variant_calling": {
@@ -20,9 +20,10 @@
     "min_mapping_quality": 5
   },
   "ranking": {
-    "basis": "candidate_anchor_shared_regions",
+    "basis": "common_finalist_regions",
     "min_shared_bases": 100000,
     "min_shared_fraction_of_larger_aligned_span": 0.5,
-    "max_verification_passes": 3
+    "max_verification_passes": 3,
+    "check_region_sensitivity": true
   }
 }

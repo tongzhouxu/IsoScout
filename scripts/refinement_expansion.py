@@ -198,9 +198,9 @@ def assess_progress(
                  if focused.get(cluster, 0) < policy["min_focused_qualifying_per_leader"] and pending.get(cluster, 0)]
     if not current.get("ranked"):
         reason = "no_qualifying_evidence_continue_broad"
-    elif current.get("ranking_basis") == "candidate_anchor_shared_regions" and current.get("cluster_status") != "RESOLVED":
+    elif current.get("ranking_basis") == "common_finalist_regions" and current.get("cluster_status") != "RESOLVED":
         reason = "unresolved_candidate_challenges"
-    elif current.get("coverage_blockers") and current.get("ranking_basis") != "candidate_anchor_shared_regions":
+    elif current.get("coverage_blockers") and current.get("ranking_basis") != "common_finalist_regions":
         reason = "unresolved_candidate_evidence"
     elif previous is None:
         reason = "initial_focused_exploration"
@@ -232,5 +232,5 @@ def assess_progress(
         "unresolved_alternatives_with_pending_references": sorted(unresolved_pending),
         "finite_leader_completion_feasible": completion_feasible,
         "stability_scope": "cluster_support_only" if current.get("genome_status") == "AMBIGUOUS" else "examined_nearest_set",
-        "isolated_exclusions_do_not_block_stability": current.get("ranking_basis") != "candidate_anchor_shared_regions",
+        "isolated_exclusions_do_not_block_stability": current.get("ranking_basis") != "common_finalist_regions",
     }

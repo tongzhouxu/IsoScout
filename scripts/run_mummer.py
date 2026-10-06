@@ -16,7 +16,7 @@ import subprocess
 import time
 from typing import Any
 from common import CONFIG_DIR, WorkflowError, load_json, require_executable, sha256_file, write_json
-from shared_target_regions import save_evidence
+from shared_target_regions import save_evidence, subtract
 
 
 def key_for(value: Any) -> str:
@@ -81,6 +81,7 @@ def parse_pair(directory: Path, target_lengths: dict, candidate_lengths: dict) -
             candidate_intervals[q].append((min(c,d),max(c,d)))
             identities.append((identity, abs(b-a)+1))
     snps, indels, ambiguous = set(), 0, 0
+    excluded = {}
     with (directory / "snps.tsv").open() as handle:
         for line in handle:
             f = line.rstrip("\n").split("\t")
@@ -99,13 +100,22 @@ def parse_pair(directory: Path, target_lengths: dict, candidate_lengths: dict) -
                 snps.add(site)
             elif rbase == "." or qbase == ".":
                 indels += 1
+                if qbase == ".":
+                    if not 1 <= pos <= target_lengths[t]:raise WorkflowError('Invalid target deletion position')
+                    excluded.setdefault(t,[]).append((pos,pos))
             else:
                 ambiguous += 1
+                if not 1 <= pos <= target_lengths[t]:raise WorkflowError('Invalid ambiguous difference position')
+                excluded.setdefault(t,[]).append((pos,pos))
     ta = sum(union_length(v) for v in target_intervals.values())
     ca = sum(union_length(v) for v in candidate_intervals.values())
     if snps and not ta:
         raise WorkflowError("SNPs without aligned bases")
+    comparison = subtract(target_intervals,excluded)
+    comparable = sum(union_length(v) for v in comparison.values())
     return {"snp_positions":sorted(snps), "target_unique_alignment_intervals":target_intervals, "snp_distance":len(snps), "indel_bases":indels, "ambiguous_difference_rows":ambiguous,
+            "target_comparison_intervals":comparison,"target_comparable_bases":comparable,
+            "target_gap_or_ambiguous_bases_excluded":ta-comparable,
             "target_aligned_bases":ta, "candidate_aligned_bases":ca,
             "target_bases":sum(target_lengths.values()), "candidate_bases":sum(candidate_lengths.values()),
             "target_aligned_fraction":ta/sum(target_lengths.values()),
@@ -187,7 +197,7 @@ def compare_pair(target: Path, candidate: Path, cache: Path, policy: dict, tools
             metrics = (record["metrics"] if record.get("parser_sha256")==parser_hash
                        else parse_pair(directory,target_lengths,fasta_lengths(candidate)))
         evidence=save_evidence(directory/"site_evidence.json",metrics,target_hash,candidate_hash,target_lengths)
-    summary = {k: v for k, v in metrics.items() if k not in {"snp_positions","target_unique_alignment_intervals"}}
+    summary = {k: v for k, v in metrics.items() if k not in {"snp_positions","target_unique_alignment_intervals","target_comparison_intervals"}}
     return {**summary,"site_evidence":evidence,"status":"COMPARED","cache_key":cache_key,"cache_hit":hit,
             "target_sha256":target_hash,"candidate_sha256":candidate_hash,"artifact_directory":str(directory),
             "commands":commands,"elapsed_seconds":time.monotonic()-started}

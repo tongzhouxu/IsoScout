@@ -137,8 +137,8 @@ variant rules, and alternative MUMmer settings are documented in
 [assembly-comparison.md](assembly-comparison.md). New batches reuse previous
 alignments; expansion does not require a pairwise matrix or tree.
 
-For assembly backends, bounded shared-position challenges are rebuilt from saved
-target-relative calls after expansion. Unresolved cluster support prevents a
+For assembly backends, the common finalist panel, outside-reference bounds and
+region-sensitivity check are rebuilt from saved target-relative calls after expansion. Unresolved cluster support prevents a
 stability stop; a changed supported set or resolution state resets stability.
 Cluster-only stability is explicitly labeled when the closest genome is unresolved.
 There is no all-candidate intersection or coverage-based candidate exclusion.

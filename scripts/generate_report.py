@@ -214,11 +214,11 @@ def _snp_section(result: dict[str, Any]) -> list[str]:
     if status == "ERROR":
         lines.append(f"Failed: {snp.get('error', 'unknown error')}")
         return lines
-    if backend in {"mummer", "minimap2"} and snp.get("ranking_basis") == "candidate_anchor_shared_regions":
+    if backend in {"mummer", "minimap2"} and snp.get("ranking_basis") == "common_finalist_regions":
         audit = snp.get("candidate_challenges") or {}
         lines.extend([
-            "**Comparison basis:** each anchor and challenger are compared on the same target positions for that pair.",
-            f"Verification: {audit.get('status', 'unavailable')}; {audit.get('comparison_count', 0)} cached-evidence challenges.",
+            "**Comparison basis:** finalists share one set of target positions. Other references are checked against that set using observed SNP lower bounds; conflicting evidence from larger aligned regions remains unresolved.",
+            f"Common-region verification: {audit.get('status', 'unavailable')}; {audit.get('comparison_count', 0)} checks of saved evidence. This status alone does not establish cluster or genome resolution.",
             "**Scope:** examined references only. A cluster outside the retrieved pool may be closer.", "",
         ])
         if snp.get("coverage_blockers"):
@@ -255,18 +255,21 @@ def _snp_section(result: dict[str, Any]) -> list[str]:
         lines.extend(["", "Supported reference set: " + (", ".join(snp.get("nearest_samples",[])) or "unresolved"),
                       "Candidate rows are display groups, not a total distance ranking. Raw SNP counts on different regions must not be ranked against each other.", ""])
         audit = snp.get("candidate_challenges") or {}
-        anchor = audit.get("anchor")
-        lines.extend(["Final-anchor challenges (full audit linked below):", "",
-                      "| First reference | Second reference | First SNPs | Second SNPs | Shared target bases | Outcome |",
-                      "|---|---|---:|---:|---:|---|"])
-        challenges = [r for r in audit.get("comparisons", []) if anchor in (r["first"], r["second"])]
-        for row in challenges[:TOP_N_GENOMES]:
-            lines.append(f"| {row['first']} | {row['second']} | {row['first_snps']} | {row['second_snps']} | {row['shared_target_bases']} | {row['relation']} |")
-        lines.append("SNP counts are comparable within each challenge row only.")
+        panel = audit.get("finalist_panel") or {}
+        lines.extend([f"Finalist comparisons on the same {panel.get('shared_target_bases', 0):,} aligned target bases:", "",
+                      "| Reference | SNPs on the common finalist region |",
+                      "|---|---:|"])
+        for name, count in sorted(panel.get("snp_counts", {}).items())[:TOP_N_GENOMES]:
+            lines.append(f"| {name} | {count} |")
+        lines.append("These counts are comparable only on this recorded region. Other references may have only partial evidence; missing positions are never treated as matches.")
+        sensitivity = audit.get("region_sensitivity") or {}
+        lines.extend(["", "Check using additional aligned regions: " + sensitivity.get("status", "not recorded") + "."])
+        if sensitivity.get("alternatives"):
+            lines.append("References contradicting a unique preference: " + ", ".join(sensitivity["alternatives"]) + ". These remain in the final decision.")
         certificate = snp.get("cluster_certificate") or {}
         lines.append("Cluster witness: " + certificate.get("status", "not recorded") + ".")
         if (snp.get("ranking_image") or {}).get("status")=="PASS":
-            lines.extend(["", "![Candidate challenges and shared sequence](snp_resolution/candidate_distances.png)"])
+            lines.extend(["", "![Common-region comparisons and outside-reference evidence](snp_resolution/candidate_distances.png)"])
         lines.extend(["", "Full pair-level metrics, failures, criteria and cache records: [comparison audit](snp_resolution/interpretation.json).",
                       "A target-only comparison does not define a phylogenetic tree."])
         return lines

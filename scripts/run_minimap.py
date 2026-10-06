@@ -12,7 +12,7 @@ import subprocess
 import time
 from common import CONFIG_DIR,WorkflowError,load_json,require_executable,sha256_file,write_json
 from run_mummer import key_for,fasta_lengths,union_length,command_run
-from shared_target_regions import save_evidence
+from shared_target_regions import save_evidence, subtract
 
 
 def prepare_paf(path: Path, output: Path, tl: dict, ql: dict, policy: dict) -> dict:
@@ -68,7 +68,7 @@ def parse_calls(path: Path, tl: dict) -> dict:
             else:
                 merged.append((start, end))
         covered[name] = ([a for a, _ in merged], [b for _, b in merged])
-    positions=set();indels=0
+    positions=set();indels=0;excluded={}
     for name,start,end,ref,alt in variants:
         if len(ref)==len(alt)==1 and ref in 'ACGT' and alt in 'ACGT':
             if end!=start+1 or ref==alt:raise WorkflowError("Invalid substitution")
@@ -78,11 +78,21 @@ def parse_calls(path: Path, tl: dict) -> dict:
             site=(name,start+1)
             if site in positions:raise WorkflowError("Duplicate target substitution")
             positions.add(site)
-        elif ref=='-' or alt=='-':indels+=len(alt) if ref=='-' else len(ref)
-        else:ambiguous+=1
+        elif ref=='-' or alt=='-':
+            indels+=len(alt) if ref=='-' else len(ref)
+            if alt=='-':
+                if end-start != len(ref):raise WorkflowError('Invalid target deletion span')
+                excluded.setdefault(name,[]).append((start+1,end))
+        else:
+            ambiguous+=1
+            if end>start:excluded.setdefault(name,[]).append((start+1,end))
     aligned=sum(union_length(v) for v in intervals.values())
+    comparison = subtract(intervals,excluded)
+    comparable = sum(union_length(v) for v in comparison.values())
     return {'snp_distance':len(positions),'indel_bases':indels,'ambiguous_difference_rows':ambiguous,
             'target_aligned_bases':aligned,
+            'target_comparison_intervals':comparison,'target_comparable_bases':comparable,
+            'target_gap_or_ambiguous_bases_excluded':aligned-comparable,
             'target_unique_alignment_intervals':intervals, 'snp_positions':sorted(positions)}
 
 
@@ -125,7 +135,7 @@ def compare_pair(target,candidate,cache,policy,tools,target_hash,tl):
                            rate_denominator='target bases covered uniquely by qualifying alignments; not a callable-site count')
             write_json(metric_file,{'metrics':metrics,'artifacts':{n:sha256_file(call_dir/n) for n in ('variants.tsv','eligible.paf')}})
         evidence=save_evidence(call_dir/'site_evidence.json',metrics,target_hash,ch,tl)
-    summary = {k: v for k, v in metrics.items() if k not in {'snp_positions', 'target_unique_alignment_intervals'}}
+    summary = {k: v for k, v in metrics.items() if k not in {'snp_positions', 'target_unique_alignment_intervals','target_comparison_intervals'}}
     return {**summary,'site_evidence':evidence,'status':'COMPARED','cache_key':key,'cache_hit':hit,'interpretation_cache_hit':bool(metrics_hit),
             'target_sha256':target_hash,'candidate_sha256':ch,'artifact_directory':str(directory),'calls_directory':str(call_dir),
             'commands':commands,'elapsed_seconds':time.monotonic()-started}

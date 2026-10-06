@@ -65,43 +65,59 @@ The MUMmer alternative uses `nucmer --maxmatch`, one-to-one `delta-filter -1`,
 mappings and reports alignment-interval coverage and indel bases. Its distances
 need not equal minimap2, SKA or another filtered SNP pipeline.
 
-## Bounded candidate challenges
+## Common finalist regions and bounded verification
 
-Policy 3.0.0 compares two candidate references at a time using their saved
-**target-relative** evidence. Intersect their aligned target intervals, then count
-each reference's SNPs on those same positions. Fewer SNPs wins that challenge;
-exact ties remain ties. No candidate-to-candidate alignment is performed.
-Different challenges may use different regions, so there is no universal SNP
-count, total distance ordering or all-candidate intersection.
+Policy 4.1.0 compares saved **target-relative** evidence. A deterministic discovery
+scan supplies a seed. Potentially closer references join a growing finalist panel;
+all finalists are counted on one identical intersection of their aligned target
+positions. Every outside reference is rechecked after the panel changes. At most
+three verification passes are allowed; insufficient shared sequence or exhaustion
+of this budget leaves genome resolution unresolved.
 
-A deterministic discovery scan chooses an anchor. Each verification pass compares
-that anchor against every usable candidate. A losing anchor can be replaced, with
-at most three verification passes and at most `4 * (N - 1)` distinct challenges.
-A repeated anchor or exhausted verification budget leaves genome resolution
-ambiguous. Accession order schedules exploration; only verified evidence can
-support a conclusion. It can affect which unresolved comparisons are explored
-within the budget.
+A panel requires at least **100,000 shared aligned target bases** and **50% of the
+largest aligned target span among its members**. These are provisional evidence
+guards, not calibrated strain cutoffs. An outside reference contributes an
+observed SNP lower bound on the part of the panel region it covers. With at least
+100,000 shared bases, a lower bound exceeding the panel minimum rules it out on
+that mask, even below 50% overlap: unknown positions cannot reduce the observed
+count. Otherwise it joins the panel when both overlap guards pass, or remains an
+unresolved alternative. Missing positions are never treated as matches. Failed
+or unaligned comparisons also remain unresolved.
 
-Each challenge currently requires at least **100,000 shared aligned target bases**
-and **50% of the larger of the two aligned target spans**. These are provisional,
-versioned evidence guards, not calibrated strain cutoffs. A failed guard retains
-that reference as an unresolved alternative; it never discards the reference to
-promote a competing answer. Failed or unaligned candidates also remain unresolved
-alternatives. The shared regions describe alignment extent, not an exact callable
-mask, recombination-masked core genome or NCBI SNP distance.
+Once the panel stops changing, one additional linear pass checks the preferred
+reference against each alternative on their full pairwise shared target regions.
+An adequately overlapping alternative that ties or beats the preferred reference,
+but was not a panel minimum, is retained as unresolved. This detects contradictory
+evidence hidden by the smaller common region. It does not select whichever region
+produces a desired cluster label, and it is not a guarantee against other regional
+or alignment-method effects. Exact panel ties remain ties.
 
-Cluster and genome conclusions are separate. An anchor with no observed defeater
-supports itself and any exact ties; unresolved alternatives still limit the final
-claim. A cluster can also be supported when a checked anchor strictly beats every
-examined reference outside its stored cluster, even if comparisons inside that
-cluster cycle, tie or have insufficient overlap. Such a cluster witness does not
-identify a unique closest genome. Unknown labels and unresolved external-cluster
-references prevent that witness. Multiple conflicting witness labels fail closed.
+Discovery, up to three verification passes and the sensitivity check require at
+most `5 * (N - 1)` comparisons of cached evidence. No candidate-to-candidate
+alignment, all-pairs matrix or all-candidate intersection is constructed. Panel
+membership can depend on deterministic exploration within the recorded budget;
+only verified evidence supports a conclusion. Comparison regions exclude reported target-coordinate deletions and ambiguous
+difference spans. Raw alignment extent remains a separate coverage diagnostic.
+These regions are not a fully validated callable mask, recombination-masked core
+or NCBI SNP distance; unreported ambiguity and method-specific alignments can
+still affect comparisons.
+
+Cluster and genome conclusions are separate. A cluster witness requires every
+reference that could meet a recorded mask's minimum, including unresolved and
+region-sensitive alternatives, to carry the same stored label. A witness can
+support that label while individual genomes remain unresolved. Unknown labels,
+external-cluster alternatives and conflicting witness labels prevent that claim.
 
 ## Result fields and interpretation
 
-- `candidate_challenges` records anchors, passes, pair counts, shared lengths,
-  support fractions, mask checksums, evidence hashes, ties and unresolved comparisons.
+- `candidate_challenges` records discovery, verification passes, outside-reference
+  lower bounds, mask checksums, evidence hashes and unresolved alternatives.
+  Its `status` describes common-panel verification, not the final resolution state.
+- `finalist_panel` records the common region, per-finalist counts and tied minima.
+  `finalist_snp_distance` is populated only for panel members in the display rows.
+- `candidate_challenges.region_sensitivity` records the final linear check and
+  contradictory alternatives. Discovery `comparisons` must not be shown as the
+  final ranking.
 - `cluster_certificate` records any cluster witnesses. `cluster_status` and
   `genome_status` must be reported separately. `nearest_cluster` and `nearest_sample`
   are populated only when their respective conclusions are resolved.
@@ -115,6 +131,9 @@ references prevent that witness. Multiple conflicting witness labels fail closed
 - `coverage_flags` records low coverage without exclusion. The compatibility field
   `coverage_blockers` contains unresolved candidate evidence, including failures.
 
+Position evidence uses `target-sites-v2`; earlier extent-only evidence must be
+regenerated from cached alignments. `target_comparable_bases` records the usable
+comparison span; `target_aligned_bases` keeps the original extent diagnostic.
 Missing, corrupt or inconsistent position evidence fails rather than assigning
 zero distance. Evidence files and input identities are checksum-verified.
 
@@ -128,9 +147,8 @@ strain identity or outbreak membership. Stored labels belong to the recorded
 database release and are not automatically translated to newer releases.
 
 Per-base calls remain in the pair cache. Every round records backend, effective
-policy, tool hashes, jobs, cache hits, failures and timings. Reports show paired
-challenge counts and shared sequence lengths, plus raw diagnostic counts and
-coverage. A target-only comparison cannot define a phylogenetic tree.
+policy, tool hashes, jobs, cache hits, failures and timings. Reports show common-panel counts, separately labeled outside-reference lower
+bounds, regional contradictions, raw diagnostic counts and coverage. A target-only comparison cannot define a phylogenetic tree.
 
 Upstream methods: [minimap2](https://github.com/lh3/minimap2),
 [paftools](https://github.com/lh3/minimap2/blob/v2.31/misc/paftools.js), and

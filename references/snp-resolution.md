@@ -88,7 +88,7 @@ matrix and can render an exploratory tree. There is no automatic backend fallbac
 ## Interpretation
 
 Assembly results report qualifying target–candidate comparisons, all ties,
-alignment coverage, per-pair failures, cache use, paired challenge support and unresolved alternatives. Read [assembly-comparison.md](assembly-comparison.md) for the shared-position challenges and insufficient-evidence rules.
+alignment coverage, per-pair failures, cache use, common-finalist counts, outside-reference lower bounds, regional contradictions and unresolved alternatives. Read [assembly-comparison.md](assembly-comparison.md) for the common-region comparisons and insufficient-evidence rules.
 No assembly tree is generated. The following tree details apply only to legacy SKA.
 
 

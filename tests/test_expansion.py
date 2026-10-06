@@ -242,7 +242,7 @@ class FocusedSchedulerTests(unittest.TestCase):
         current = self.interpretation(qualifying=[("REP", "C1"), ("NEW", "C1")])
         coverage = [{"cluster": "C1", "qualifying_additional": 20, "unexamined_additional": 0}]
         for item in (previous, current):
-            item.update(ranking_basis="candidate_anchor_shared_regions", cluster_status="AMBIGUOUS", genome_status="AMBIGUOUS")
+            item.update(ranking_basis="common_finalist_regions", cluster_status="AMBIGUOUS", genome_status="AMBIGUOUS")
         current["coverage_blockers"] = [{"sample": "NEW", "cluster": "C1"}]
         result = assess_progress(previous, current, coverage, self.policy, False, 1)
         self.assertFalse(result["stable"])
