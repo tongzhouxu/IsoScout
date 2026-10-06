@@ -214,19 +214,15 @@ def _snp_section(result: dict[str, Any]) -> list[str]:
     if status == "ERROR":
         lines.append(f"Failed: {snp.get('error', 'unknown error')}")
         return lines
-    if backend in {"mummer", "minimap2"} and snp.get("ranking_basis") == "shared_target_regions":
-        shared = snp.get("shared_regions") or {}
+    if backend in {"mummer", "minimap2"} and snp.get("ranking_basis") == "candidate_anchor_shared_regions":
+        audit = snp.get("candidate_challenges") or {}
         lines.extend([
-            "**Comparison basis:** the same target regions for every qualifying reference.",
-            f"Shared target coverage: {100*shared.get('shared_target_fraction', 0):.2f}%; "
-            f"status: {shared.get('status', 'unavailable')}.",
+            "**Comparison basis:** each anchor and challenger are compared on the same target positions for that pair.",
+            f"Verification: {audit.get('status', 'unavailable')}; {audit.get('comparison_count', 0)} cached-evidence challenges.",
             "**Scope:** examined references only. A cluster outside the retrieved pool may be closer.", "",
         ])
         if snp.get("coverage_blockers"):
-            lines.append("**Unresolved excluded alternatives:** " + ", ".join(row["sample"] for row in snp["coverage_blockers"]) +
-                         ". Coverage exclusion is not evidence that these references are more distant.")
-        if status == "INSUFFICIENT_DATA":
-            lines.append(snp.get("confidence", {}).get("statement", "No resolved comparison."))
+            lines.append("**Unresolved reference evidence:** " + ", ".join(row["sample"] for row in snp["coverage_blockers"]) + ".")
     if status not in {"COMPARED", "AMBIGUOUS", "RESOLVED"}:
         lines.append(f"Status: {status}")
         return lines
@@ -250,18 +246,27 @@ def _snp_section(result: dict[str, Any]) -> list[str]:
         lines.extend([
             f"Each candidate was aligned directly to the target assembly using {backend}. No candidate-to-candidate matrix was calculated.", "",
             snp.get("confidence",{}).get("statement","No qualifying comparisons."), "",
-            "| Candidate | Cluster | Shared-region SNPs | Pair-specific SNPs | Target aligned (%) | Candidate aligned (%) |",
+            "| Candidate | Cluster | Challenge role | Raw pair SNPs (diagnostic) | Target aligned (%) | Candidate aligned (%) |",
             "|---|---|---:|---:|---:|---:|",
         ])
         for row in snp.get("ranked",[])[:TOP_N_GENOMES]:
-            lines.append(f"| {row['sample']} | {row['cluster']} | {row.get('ranking_snp_distance', 'not available')} | {row['snp_distance']} | "
+            lines.append(f"| {row['sample']} | {row['cluster']} | {row.get('challenge_role', 'not recorded')} | {row['snp_distance']} | "
                          f"{100*row['target_aligned_fraction']:.2f} | {100*row['candidate_aligned_fraction']:.2f} |")
-        lines.extend(["", "All minimum-SNP-count ties: " + ", ".join(snp.get("nearest_samples",[])),
-                      "Minimum SNP rate on the same shared target regions: " + ", ".join(snp.get("nearest_by_aligned_snp_rate",[])), ""])
-        if snp.get("ranking_basis_conflict"):
-            lines.append("**Closest-genome conclusion unresolved:** SNP-count and aligned-SNP-rate minima disagree.")
+        lines.extend(["", "Supported reference set: " + (", ".join(snp.get("nearest_samples",[])) or "unresolved"),
+                      "Candidate rows are display groups, not a total distance ranking. Raw SNP counts on different regions must not be ranked against each other.", ""])
+        audit = snp.get("candidate_challenges") or {}
+        anchor = audit.get("anchor")
+        lines.extend(["Final-anchor challenges (full audit linked below):", "",
+                      "| First reference | Second reference | First SNPs | Second SNPs | Shared target bases | Outcome |",
+                      "|---|---|---:|---:|---:|---|"])
+        challenges = [r for r in audit.get("comparisons", []) if anchor in (r["first"], r["second"])]
+        for row in challenges[:TOP_N_GENOMES]:
+            lines.append(f"| {row['first']} | {row['second']} | {row['first_snps']} | {row['second_snps']} | {row['shared_target_bases']} | {row['relation']} |")
+        lines.append("SNP counts are comparable within each challenge row only.")
+        certificate = snp.get("cluster_certificate") or {}
+        lines.append("Cluster witness: " + certificate.get("status", "not recorded") + ".")
         if (snp.get("ranking_image") or {}).get("status")=="PASS":
-            lines.extend(["", "![Candidate SNP distances and alignment coverage](snp_resolution/candidate_distances.png)"])
+            lines.extend(["", "![Candidate challenges and shared sequence](snp_resolution/candidate_distances.png)"])
         lines.extend(["", "Full pair-level metrics, failures, criteria and cache records: [comparison audit](snp_resolution/interpretation.json).",
                       "A target-only comparison does not define a phylogenetic tree."])
         return lines

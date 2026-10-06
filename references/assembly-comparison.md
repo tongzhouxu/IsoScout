@@ -51,14 +51,13 @@ PAF query intervals. These are alignment-extent measurements, not exact callable
 site counts. Ambiguous bases may be omitted upstream and zero reported ambiguous
 difference rows does not establish absence of ambiguous input sequence.
 
-The versioned defaults in `config/assembly-comparison-policy.json` require 85%
-target and candidate alignment coverage, a minimum 500 bp alignment and mapping
-quality 5. The mapping-quality default follows upstream paftools; the coverage
-and alignment-length criteria are explicit IsoScout defaults for assembly
-comparison. They are not user-specified criteria, calibrated strain thresholds,
-or inherited SKA shared-kmer tests. `--assembly-comparison-policy PATH` records an
-explicit alternative policy. Neither density filtering nor contig-edge SNP
-masking is applied. Assembly QC remains a separate, unchanged earlier stage.
+The versioned defaults in `config/assembly-comparison-policy.json` use a minimum
+500 bp alignment and mapping quality 5. The mapping-quality default follows
+upstream paftools. The 85% target/candidate coverage values are now **reporting
+references only**: falling below them never removes an aligned candidate.
+Neither density filtering nor contig-edge SNP masking is applied. Assembly QC
+remains a separate earlier stage. `--assembly-comparison-policy PATH` records an
+explicit alternative policy.
 
 The MUMmer alternative uses `nucmer --maxmatch`, one-to-one `delta-filter -1`,
 `show-coords -rclTH` and `show-snps -rlTHC`. Its policy is
@@ -66,66 +65,72 @@ The MUMmer alternative uses `nucmer --maxmatch`, one-to-one `delta-filter -1`,
 mappings and reports alignment-interval coverage and indel bases. Its distances
 need not equal minimap2, SKA or another filtered SNP pipeline.
 
-## Shared-region ranking and unresolved alternatives
+## Bounded candidate challenges
 
-Policy 2.0.0 ranks all qualifying references using the **same target positions**:
-the intersection of their recorded target alignment intervals. SNPs are recounted
-from checksum-verified per-position evidence; no additional alignment or
-candidate-to-candidate matrix is constructed. Every reference uses the same
-denominator. Raw pair-specific SNP counts and rates remain diagnostic records
-because similar coverage percentages do not imply that the same positions were
-compared. No reference is removed to improve the intersection or its ranking.
+Policy 3.0.0 compares two candidate references at a time using their saved
+**target-relative** evidence. Intersect their aligned target intervals, then count
+each reference's SNPs on those same positions. Fewer SNPs wins that challenge;
+exact ties remain ties. No candidate-to-candidate alignment is performed.
+Different challenges may use different regions, so there is no universal SNP
+count, total distance ordering or all-candidate intersection.
 
-The shared mask must satisfy the policy's existing minimum target-coverage
-fraction (85% by default). This conservative default is an explicit software
-criterion, not an empirically calibrated strain threshold. If it is not met,
-return `INSUFFICIENT_DATA`, with no nearest sample or cluster. Expansion stops at
-`insufficient_shared_target_regions`: adding candidates cannot enlarge the
-intersection. This can increase unresolved outcomes; there is no silent fallback
-to incomparable pair counts. The shared mask describes aligned sequence, not an
-exact callable-site mask, recombination-masked core genome or NCBI SNP distance.
+A deterministic discovery scan chooses an anchor. Each verification pass compares
+that anchor against every usable candidate. A losing anchor can be replaced, with
+at most three verification passes and at most `4 * (N - 1)` distinct challenges.
+A repeated anchor or exhausted verification budget leaves genome resolution
+ambiguous. Accession order schedules exploration; only verified evidence can
+support a conclusion. It can affect which unresolved comparisons are explored
+within the budget.
 
-A coverage-excluded reference with no larger pair-specific SNP count **or** rate
-than a shared-region winner is a potentially competitive alternative. It is not
-promoted into the ranking, but prevents a resolved nearest-genome claim. If its
-stored label differs from the winning label, or is unknown, the cluster conclusion
-also remains ambiguous. The guard identifies uncertainty; it does not establish
-that the excluded reference is closer. A same-cluster alternative can leave the
-cluster resolved while the genome remains unresolved.
+Each challenge currently requires at least **100,000 shared aligned target bases**
+and **50% of the larger of the two aligned target spans**. These are provisional,
+versioned evidence guards, not calibrated strain cutoffs. A failed guard retains
+that reference as an unresolved alternative; it never discards the reference to
+promote a competing answer. Failed or unaligned candidates also remain unresolved
+alternatives. The shared regions describe alignment extent, not an exact callable
+mask, recombination-masked core genome or NCBI SNP distance.
 
-`ranked[].ranking_snp_distance` and `nearest_snp_distance` contain shared-region
-counts. `ranked[].snp_distance` retains the original pair-specific count.
-`shared_regions` records the exact mask, its checksum, target identity, evidence
-checksums, participating references, aligned bases and coverage. Missing, corrupt
-or inconsistent position evidence fails rather than assigning zero distance.
-`pair_specific_diagnostics` retains the former count/rate minima for audit only.
-The compatibility field `nearest_by_aligned_snp_rate` now names the shared-region
-rate minima, which necessarily equal the count minima on the same denominator.
+Cluster and genome conclusions are separate. An anchor with no observed defeater
+supports itself and any exact ties; unresolved alternatives still limit the final
+claim. A cluster can also be supported when a checked anchor strictly beats every
+examined reference outside its stored cluster, even if comparisons inside that
+cluster cycle, tie or have insufficient overlap. Such a cluster witness does not
+identify a unique closest genome. Unknown labels and unresolved external-cluster
+references prevent that witness. Multiple conflicting witness labels fail closed.
 
-`cluster_status` and `genome_status` describe separate conclusions. Preserve exact
-genome ties and all cross-cluster ambiguity. `coverage_blockers` records competitive
-excluded alternatives, and `cluster_candidates` includes their known labels.
-`nearest_cluster` is populated only when the cluster conclusion is resolved;
-`nearest_sample` only when the genome conclusion is resolved. `nearest_samples`
-and `nearest_clusters` retain the qualifying minimum sets even when an excluded
-alternative prevents resolution; never use those fields alone as a resolved call.
+## Result fields and interpretation
 
-Every result is conditional on the examined reference pool. `search_scope`
+- `candidate_challenges` records anchors, passes, pair counts, shared lengths,
+  support fractions, mask checksums, evidence hashes, ties and unresolved comparisons.
+- `cluster_certificate` records any cluster witnesses. `cluster_status` and
+  `genome_status` must be reported separately. `nearest_cluster` and `nearest_sample`
+  are populated only when their respective conclusions are resolved.
+- `decision_reference_samples` includes the references needed to interpret the
+  cluster conclusion. `cluster_candidates` gives their known stored labels.
+- `ranked` is retained as a compatibility field containing **display groups**, not
+  a total distance order. `challenge_role` labels those groups. Its `snp_distance`
+  is a raw pair-specific diagnostic; never rank these counts against each other.
+- `nearest_snp_distance` is null and `nearest_by_aligned_snp_rate` is empty: different
+  masks cannot support one comparable scalar or rate across all references.
+- `coverage_flags` records low coverage without exclusion. The compatibility field
+  `coverage_blockers` contains unresolved candidate evidence, including failures.
+
+Missing, corrupt or inconsistent position evidence fails rather than assigning
+zero distance. Evidence files and input identities are checksum-verified.
+
+Every conclusion is conditional on the examined reference pool. `search_scope`
 records retrieval truncation, unexamined returned references and missing downloads.
-Expansion searches selected returned clusters; it does not prove that an unseen
-cluster is absent or more distant. Sampled stability is reset when the common
-mask changes and is blocked by competitive exclusions. Neither a stable result
-nor a shared-region minimum establishes global nearest-genome recovery, strain
-identity or outbreak membership. Stored labels belong to the recorded database
-release and are not automatically translated to newer releases.
+Expansion searches selected returned clusters; it cannot recover an unseen cluster.
+Unresolved cluster evidence prevents sampled stability; changes in supported
+clusters, genomes or resolution states reset it. If only cluster support is stable,
+`stability_scope` says so. Stability does not establish a globally closest genome,
+strain identity or outbreak membership. Stored labels belong to the recorded
+database release and are not automatically translated to newer releases.
 
-Detailed per-base calls remain in the pair cache alongside raw alignment files;
-round and user-facing summaries contain compact per-candidate measurements.
-Every round records backend, effective policy, tool hashes, successful jobs,
-cache hits, failures and timings. Reports separate shared-region and pair-specific SNP counts, with target and
-candidate coverage; the full interpretation retains the pair-level records and
-all exclusions. A target-only distance list cannot be used to invent a complete
-matrix or phylogenetic tree.
+Per-base calls remain in the pair cache. Every round records backend, effective
+policy, tool hashes, jobs, cache hits, failures and timings. Reports show paired
+challenge counts and shared sequence lengths, plus raw diagnostic counts and
+coverage. A target-only comparison cannot define a phylogenetic tree.
 
 Upstream methods: [minimap2](https://github.com/lh3/minimap2),
 [paftools](https://github.com/lh3/minimap2/blob/v2.31/misc/paftools.js), and

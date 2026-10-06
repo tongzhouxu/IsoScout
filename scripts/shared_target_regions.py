@@ -1,4 +1,4 @@
-"""Compare saved target-relative SNP calls on one identical region mask.
+"""Compare saved target-relative SNP calls on identical positions per challenge.
 
 No reference-to-reference alignment or pairwise distance matrix is constructed.
 Intervals and substitution positions use one-based inclusive target coordinates.
@@ -87,39 +87,104 @@ def load_evidence(row):
     return data, regions, snps
 
 
-def rank_on_shared_regions(rows, minimum_fraction):
-    """Use every qualifying reference; never prune a reference to improve a mask."""
-    mask = None
-    sites = {}
-    identity = None
-    evidence_hashes = {}
-    for row in sorted(rows, key=lambda r: r["sample"]):
-        data, regions, snps = load_evidence(row)
-        current = (data["target_sha256"], data["target_lengths"])
-        if identity is not None and identity != current:
-            raise WorkflowError("Candidates do not share one target coordinate system")
+def challenge_candidates(rows, policy):
+    """Find and verify a candidate with no observed challenger that beats it.
+
+    Discovery is one linear scan. At most three verification passes reuse saved
+    target calls, never align references or build an all-pairs distance matrix.
+    Each challenge has one identical position mask for its two target distances.
+    A verification certificate, not scan order, determines the conclusion.
+    """
+    min_bases = policy['min_shared_bases']
+    fraction = policy['min_shared_fraction_of_larger_aligned_span']
+    passes = policy['max_verification_passes']
+    if type(min_bases) is not int or min_bases <= 0 or not 0 < fraction <= 1 or type(passes) is not int or not 1 <= passes <= 3:
+        raise WorkflowError('Invalid candidate-challenge evidence or resource policy')
+    by = {r['sample']: r for r in rows}
+    if len(by) != len(rows):
+        raise WorkflowError('Duplicate comparison sample')
+    data, evidence_hashes, identity = {}, {}, None
+    for name in sorted(by):
+        saved, regions, snps = load_evidence(by[name])
+        current = (saved['target_sha256'], saved['target_lengths'])
+        if identity is not None and current != identity:
+            raise WorkflowError('Candidates do not share one target coordinate system')
         identity = current
-        mask = regions if mask is None else intersect(mask, regions)
-        sites[row["sample"]] = snps
-        evidence_hashes[row["sample"]] = row["site_evidence"]["sha256"]
-    mask = {name: spans for name, spans in (mask or {}).items() if spans}
-    bases = sum(hi-lo+1 for spans in mask.values() for lo, hi in spans)
-    target_bases = sum(identity[1].values()) if identity else 0
-    fraction = bases / target_bases if target_bases else 0
-    sufficient = bool(bases and fraction >= minimum_fraction)
-    digest = hashlib.sha256(json.dumps(mask, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
-    ranking = []
-    for row in rows:
-        count = sum(within(mask, name, pos) for name, pos in sites[row["sample"]])
-        ranking.append({**row, "ranking_snp_distance": count,
-                        "ranking_snps_per_target_mb": count*1e6/bases if bases else None})
-    ranking.sort(key=lambda r: (r["ranking_snp_distance"], r["sample"]))
-    audit = {"status": "SUFFICIENT" if sufficient else "INSUFFICIENT_DATA",
-             "basis": "intersection_of_all_qualifying_target_regions",
-             "coordinate_system": "one_based_inclusive", "target_sha256": identity[0] if identity else None,
-             "target_bases": target_bases, "shared_target_bases": bases,
-             "shared_target_fraction": fraction, "minimum_target_fraction": minimum_fraction,
-             "mask_sha256": digest, "regions": mask, "evidence_sha256": evidence_hashes,
-             "samples": sorted(sites),
-             "interpretation": "Identical aligned target positions for every ranked reference; not an exact callable-site mask, strain cutoff or NCBI SNP distance."}
-    return ranking, audit
+        data[name] = (regions, snps)
+        evidence_hashes[name] = by[name]['site_evidence']['sha256']
+    audited = {}
+
+    def compare(left, right):
+        first, second = sorted((left, right))
+        key = (first, second)
+        if key not in audited:
+            shared = intersect(data[first][0], data[second][0])
+            bases = sum(hi-lo+1 for spans in shared.values() for lo,hi in spans)
+            ratio = bases / max(by[first]['target_aligned_bases'], by[second]['target_aligned_bases'])
+            counts = [sum(within(shared, contig, pos) for contig,pos in data[name][1]) for name in key]
+            sufficient = bases >= min_bases and ratio >= fraction
+            winner = (first if counts[0] < counts[1] else second if counts[1] < counts[0] else None) if sufficient else None
+            relation = 'FIRST' if winner == first else 'SECOND' if winner == second else 'TIE' if sufficient else 'INSUFFICIENT_DATA'
+            audited[key] = {'first': first, 'second': second, 'shared_target_bases': bases,
+                            'shared_fraction_of_larger_aligned_span': ratio,
+                            'first_snps': counts[0], 'second_snps': counts[1],
+                            'relation': relation, 'winner': winner,
+                            'mask_sha256': hashlib.sha256(json.dumps(shared,sort_keys=True,separators=(',',':')).encode()).hexdigest()}
+        return audited[key]
+
+    def verdict(left, right):
+        measured = compare(left, right)
+        if measured['relation'] in ('TIE', 'INSUFFICIENT_DATA'):
+            return measured['relation']
+        return 'WIN' if measured['winner'] == left else 'LOSE'
+
+    names = sorted(by)
+    if not names:
+        raise WorkflowError('No candidate position evidence')
+    anchor = names[0]
+    for candidate in names[1:]:
+        relation = verdict(anchor, candidate)
+        if relation == 'LOSE' or (relation in ('TIE','INSUFFICIENT_DATA') and
+                                  by[candidate]['target_aligned_bases'] > by[anchor]['target_aligned_bases']):
+            anchor = candidate
+    history, visited = [], set()
+    certified = False
+    stop = 'verification_budget_exhausted'
+    ties, unknown, defeats = [], [], []
+    for iteration in range(passes):
+        visited.add(anchor)
+        ties, unknown, defeats = [], [], []
+        for candidate in names:
+            if candidate == anchor:
+                continue
+            relation = verdict(anchor, candidate)
+            if relation == 'LOSE': defeats.append(candidate)
+            elif relation == 'TIE': ties.append(candidate)
+            elif relation == 'INSUFFICIENT_DATA': unknown.append(candidate)
+        history.append({'anchor':anchor,'tied':ties,'unresolved':unknown,'defeaters':defeats})
+        if not defeats:
+            certified = True
+            stop = 'verified_no_observed_defeater'
+            break
+        next_anchor = defeats[0]
+        if next_anchor in visited:
+            stop = 'comparison_cycle'
+            break
+        if iteration + 1 < passes:
+            anchor = next_anchor
+    # A single candidate has no opponent from which to obtain a support check.
+    if len(names) == 1 and by[anchor]['target_aligned_bases'] < min_bases:
+        certified = False
+        stop = 'insufficient_sequence_evidence'
+    supported = sorted({anchor, *ties}) if certified else []
+    uncertain = sorted(set(unknown) | set(defeats) | (visited if not certified else set()))
+    return {'status':'VERIFIED' if certified else 'UNRESOLVED',
+            'basis':'candidate_anchor_shared_regions', 'anchor':anchor,
+            'supported_samples':supported, 'unresolved_samples':uncertain,
+            'stop_reason':stop, 'verification_passes':history,
+            'comparisons':list(audited.values()), 'comparison_count':len(audited),
+            'comparison_upper_bound':(passes+1)*max(0,len(names)-1),
+            'evidence_sha256':evidence_hashes, 'policy':policy,
+            'target_sha256':identity[0],
+            'interpretation':'Each challenger is evaluated on its shared target positions with the anchor. There is no universal SNP count, total distance ranking or candidate-to-candidate alignment. Low overlap remains unresolved evidence.'}
+

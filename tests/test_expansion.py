@@ -237,20 +237,22 @@ class FocusedSchedulerTests(unittest.TestCase):
         self.assertFalse(result["stable"])
         self.assertIn("C3", result["unresolved_alternatives_with_pending_references"])
 
-    def test_shared_mask_change_and_competitive_exclusion_reset_stability(self):
+    def test_unresolved_challenges_block_stability_and_cluster_witness_can_support_it(self):
         previous = self.interpretation(qualifying=[("REP", "C1")])
         current = self.interpretation(qualifying=[("REP", "C1"), ("NEW", "C1")])
         coverage = [{"cluster": "C1", "qualifying_additional": 20, "unexamined_additional": 0}]
-        previous["shared_regions"] = {"mask_sha256": "before"}
-        current["shared_regions"] = {"mask_sha256": "after"}
+        for item in (previous, current):
+            item.update(ranking_basis="candidate_anchor_shared_regions", cluster_status="AMBIGUOUS", genome_status="AMBIGUOUS")
+        current["coverage_blockers"] = [{"sample": "NEW", "cluster": "C1"}]
         result = assess_progress(previous, current, coverage, self.policy, False, 1)
         self.assertFalse(result["stable"])
-        self.assertEqual(result["reason"], "shared_target_regions_changed")
-        current["shared_regions"] = previous["shared_regions"]
-        current["coverage_blockers"] = [{"sample": "EXCLUDED", "cluster": "C2"}]
-        result = assess_progress(previous, current, coverage, self.policy, False, 1)
-        self.assertEqual(result["reason"], "unresolved_coverage_exclusion")
-        self.assertEqual(result["stable_rounds"], 0)
+        self.assertEqual(result["reason"], "unresolved_candidate_challenges")
+        current["cluster_status"] = "RESOLVED"
+        self.assertEqual(assess_progress(previous,current,coverage,self.policy,False,1)["reason"], "nearest_result_changed")
+        previous["cluster_status"] = "RESOLVED"
+        result = assess_progress(previous,current,coverage,self.policy,False,0)
+        self.assertTrue(result["stable"])
+        self.assertEqual(result["stability_scope"],"cluster_support_only")
 
     def test_determinism_dedup_self_exclusion_and_strict_budget(self):
         members = ([{"accession": f"A{i}", "cluster": "C1"} for i in range(5)]

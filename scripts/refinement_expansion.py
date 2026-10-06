@@ -173,7 +173,7 @@ def schedule_focused_batch(
         "finite_leader_completion_feasible": finite_completion_feasible,
         "focus_target": focus_target, "chosen": decisions,
         "cursor_after": {key: state.get(key) for key in ("leader_after", "alternative_after", "unresolved_after")},
-        "rationale": "Qualifying SNP minima define all tied leaders; reserved alternative slots rotate across selected clusters. Accession order is deterministic sampling, not a similarity ranking.",
+        "rationale": "Supported cluster sets define the expansion leaders; reserved alternative slots rotate across selected clusters. Accession order is deterministic sampling, not a similarity ranking.",
     }
     return chosen, state, audit
 
@@ -183,8 +183,7 @@ def assess_progress(
     coverage: list[dict[str, Any]], policy: dict[str, Any],
     completion_feasible: bool, stable_rounds: int,
 ) -> dict[str, Any]:
-    """An isolated exclusion does not block stability; a cluster without any
-    qualifying evidence and with pending references does."""
+    """Require stable support and adequate exploration; retain unresolved clusters."""
     validate_expansion_policy(policy)
     present = {row["sample"] for row in current.get("ranked", [])}
     prior = {row["sample"] for row in previous.get("ranked", [])} if previous else set()
@@ -199,13 +198,17 @@ def assess_progress(
                  if focused.get(cluster, 0) < policy["min_focused_qualifying_per_leader"] and pending.get(cluster, 0)]
     if not current.get("ranked"):
         reason = "no_qualifying_evidence_continue_broad"
-    elif current.get("coverage_blockers"):
-        reason = "unresolved_coverage_exclusion"
+    elif current.get("ranking_basis") == "candidate_anchor_shared_regions" and current.get("cluster_status") != "RESOLVED":
+        reason = "unresolved_candidate_challenges"
+    elif current.get("coverage_blockers") and current.get("ranking_basis") != "candidate_anchor_shared_regions":
+        reason = "unresolved_candidate_evidence"
     elif previous is None:
         reason = "initial_focused_exploration"
-    elif (current.get("shared_regions") or {}).get("mask_sha256") != (previous.get("shared_regions") or {}).get("mask_sha256"):
-        reason = "shared_target_regions_changed"
-    elif current.get("nearest_snp_distance") != previous.get("nearest_snp_distance") or set(current.get("nearest_samples", [])) != set(previous.get("nearest_samples", [])):
+    elif (current.get("nearest_snp_distance") != previous.get("nearest_snp_distance")
+          or set(current.get("nearest_samples", [])) != set(previous.get("nearest_samples", []))
+          or set(current.get("nearest_clusters", [])) != set(previous.get("nearest_clusters", []))
+          or current.get("cluster_status") != previous.get("cluster_status")
+          or current.get("genome_status") != previous.get("genome_status")):
         reason = "nearest_result_changed"
     elif not new_qualifying:
         reason = "no_new_qualifying_comparisons"
@@ -228,5 +231,6 @@ def assess_progress(
         "leading_clusters_below_minimum": sorted(below_min),
         "unresolved_alternatives_with_pending_references": sorted(unresolved_pending),
         "finite_leader_completion_feasible": completion_feasible,
-        "isolated_exclusions_do_not_block_stability": True,
+        "stability_scope": "cluster_support_only" if current.get("genome_status") == "AMBIGUOUS" else "examined_nearest_set",
+        "isolated_exclusions_do_not_block_stability": current.get("ranking_basis") != "candidate_anchor_shared_regions",
     }

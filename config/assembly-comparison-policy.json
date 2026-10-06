@@ -1,5 +1,5 @@
 {
-  "policy_version": "2.0.0",
+  "policy_version": "3.0.0",
   "backend": "minimap2",
   "alignment": {
     "preset": "asm5"
@@ -12,7 +12,7 @@
     "workers": 4,
     "command_timeout_seconds": 600
   },
-  "criteria_source": "IsoScout assembly-comparison v2: 85% target and candidate alignment coverage and 500 bp minimum alignment are explicit workflow criteria, not user requirements or strain cutoffs. Mapping quality 5 follows paftools call defaults. No density or contig-edge SNP filtering. Ranking now uses the intersection of qualifying target regions, with the same recorded target-coverage floor. Excluded alternatives with no larger raw SNP count or rate block a resolved genome conclusion; a different or unknown label also blocks cluster resolution.",
+  "criteria_source": "Coverage fractions of 85% are informational reporting references only and never exclude candidates. Shared-position challenges require at least 100,000 aligned target bases and half of the larger pairwise aligned target span. These provisional evidence floors are not calibrated strain cutoffs; failing them keeps an alternative unresolved rather than promoting another reference. At most three verification passes use cached target calls. No density or contig-edge SNP masking is applied.",
   "metric": "ACGT substitutions called by paftools in uniquely covered target regions; indels reported separately",
   "minimap2_version": "2.31-r1302",
   "variant_calling": {
@@ -20,7 +20,9 @@
     "min_mapping_quality": 5
   },
   "ranking": {
-    "basis": "shared_target_regions",
-    "coverage_exclusion_guard": true
+    "basis": "candidate_anchor_shared_regions",
+    "min_shared_bases": 100000,
+    "min_shared_fraction_of_larger_aligned_span": 0.5,
+    "max_verification_passes": 3
   }
 }

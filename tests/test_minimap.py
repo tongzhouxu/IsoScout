@@ -30,7 +30,8 @@ class MinimapIntegrationTests(unittest.TestCase):
             self.assertEqual(by["N"]["ambiguous_difference_rows"],0)  # paftools suppresses N differences upstream.
             targets=[{"accession":name,"cluster":"C1"} for name in variants if name!="QUERY"]
             interpreted=interpret(result["comparisons"],targets,"C1",result["policy"])
-            self.assertIn("SHORT",[x["sample"] for x in interpreted["excluded_comparisons"]])
+            self.assertIn("SHORT",[x["sample"] for x in interpreted["coverage_blockers"]])
+            self.assertEqual(interpreted["cluster_status"],"RESOLVED")
             self.assertIsNone(interpreted["nearest_sample"])
             again=run_minimap(genomes,root/"again",root/"cache")
             self.assertEqual(again["alignment_jobs"],0)

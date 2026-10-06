@@ -83,11 +83,14 @@ def summary_text(result: dict[str, Any]) -> str:
         uncertainty = (snp.get("expansion") or {}).get("remaining_uncertainty") or {}
         if uncertainty.get("budget_or_round_limit_prevented_required_exploration"):
             lines.append("Focused or alternative exploration remained incomplete at the resource or round limit.")
-    if snp and snp.get("ranking_basis") == "shared_target_regions":
-        shared = snp.get("shared_regions") or {}
-        lines.append("Shared-region comparison: " + shared.get("status", "unavailable") +
-                     ". Cluster resolution: " + snp.get("cluster_status", "INSUFFICIENT_DATA") + ".")
+    if snp and snp.get("ranking_basis") == "candidate_anchor_shared_regions":
+        lines.append("Shared-position candidate challenges: cluster " + snp.get("cluster_status", "INSUFFICIENT_DATA") +
+                     "; genome " + snp.get("genome_status", "INSUFFICIENT_DATA") + ".")
+        lines.append("Supported stored cluster: " + (snp.get("nearest_cluster") or "unresolved") + ".")
         lines.append(snp.get("confidence", {}).get("statement", ""))
+        uncertainty = (snp.get("expansion") or {}).get("remaining_uncertainty") or {}
+        if uncertainty.get("budget_or_round_limit_prevented_required_exploration"):
+            lines.append("Focused or alternative exploration remained incomplete at the resource or round limit.")
     if result.get("stop_reason"):
         lines.append(f"Analysis stopped: {result['stop_reason']}")
     warnings = result.get("warnings", [])
@@ -201,15 +204,6 @@ def run_snp_resolution(
             "nearest_snp_distance": interpretation.get("nearest_snp_distance"),
             "excluded_comparisons": interpretation.get("excluded_comparisons", []),
         }
-        shared = interpretation.get("shared_regions") or {}
-        if shared.get("basis") == "intersection_of_all_qualifying_target_regions" and shared.get("status") != "SUFFICIENT":
-            stop_reason = "insufficient_shared_target_regions"
-            record["feedback"] = {"action": "STOP", "reason": stop_reason, "stable": False}
-            record["allocation"] = {"chosen": [], "not_requested_reason": stop_reason}
-            rounds.append(record)
-            write_json(round_dir / "interpretation.json", interpretation)
-            write_json(round_dir / "round.json", record)
-            break  # Adding references cannot enlarge this intersection.
         if not expand:
             record["feedback"] = {"action": "STOP", "reason": "representatives_only"}
             rounds.append(record)
@@ -317,7 +311,7 @@ def run_snp_resolution(
         "additional_reference_attempts": max(0, len(attempted) - targets_result["selected_genomes"]),
         "membership": membership, "all_attempted_targets": list(targets.values()),
         "interpretation": "Stability applies to sampled references only; it does not prove no closer unexamined genome exists.",
-        "allocation_rule": "All tied qualifying SNP-nearest clusters share a focused lane; reserved alternative slots rotate across selected clusters, with one configurable unresolved-cluster slot. Accession order is deterministic sampling, not similarity ranking.",
+        "allocation_rule": "Supported cluster sets share a focused lane; reserved alternative slots rotate across selected clusters, with one configurable unresolved-cluster slot. Accession order is deterministic sampling, not similarity ranking.",
         "member_coverage_by_cluster": final_member_coverage,
         "remaining_uncertainty": {
             "unresolved_selected_clusters": unresolved_clusters,

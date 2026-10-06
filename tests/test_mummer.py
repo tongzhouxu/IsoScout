@@ -22,6 +22,7 @@ class PairTests(unittest.TestCase):
     def setUp(self):
         self.tmp=tempfile.TemporaryDirectory();self.addCleanup(self.tmp.cleanup);self.root=Path(self.tmp.name)
         self.policy=load_json(ROOT/"config/mummer-comparison-policy.json")
+        self.policy["ranking"]["min_shared_bases"]=100  # Scaled synthetic fixtures.
         self.tools={"version":"4.0.0","executables":{x:{"path":x,"sha256":"fixture"} for x in ("nucmer","delta-filter","show-snps","show-coords")}}
         self.genomes={}
         for i in range(126):
@@ -86,11 +87,12 @@ class PairTests(unittest.TestCase):
             return comparison(self.root,name,snps,covered)
         targets=[{"accession":name,"cluster":"C1"} for name in "ABC"]
         result=interpret([row("A",0,500),row("B",3,1000),row("C",3,1000)],targets,"C1",self.policy)
-        self.assertEqual(result["nearest_samples"],["B","C"]);self.assertEqual(result["excluded_comparisons"][0]["sample"],"A")
-        self.assertIsNone(result["nearest_sample"]);self.assertIsNone(result["newick_tree"])
+        self.assertEqual(result["nearest_samples"],["A"]);self.assertEqual(result["excluded_comparisons"],[])
+        self.assertEqual(result["nearest_sample"],"A");self.assertIsNone(result["newick_tree"])
         result=interpret([row("A",100,850),row("B",110,1000)],targets,"C1",self.policy)
         self.assertFalse(result["ranking_basis_conflict"]);self.assertEqual(result["nearest_sample"],"A")
-        self.assertEqual(result["pair_specific_diagnostics"]["minimum_rate_samples"],["B"])
+        self.assertIsNone(result["nearest_snp_distance"])
+        self.assertEqual(result["candidate_challenges"]["comparisons"][0]["shared_target_bases"],850)
 
 @unittest.skipUnless(os.environ.get("ISOSCOUT_TOOL_TESTS")=="1","Set ISOSCOUT_TOOL_TESTS=1 with pinned tools")
 class MummerIntegrationTests(unittest.TestCase):
@@ -112,7 +114,8 @@ class MummerIntegrationTests(unittest.TestCase):
             self.assertEqual(by["N"]["ambiguous_difference_rows"],0)  # MUMmer suppresses N differences upstream.
             targets=[{"accession":name,"cluster":"C1"} for name in variants if name!="QUERY"]
             interpreted=interpret(result["comparisons"],targets,"C1",result["policy"])
-            self.assertIn("SHORT",[x["sample"] for x in interpreted["excluded_comparisons"]])
+            self.assertIn("SHORT",[x["sample"] for x in interpreted["coverage_blockers"]])
+            self.assertEqual(interpreted["cluster_status"],"RESOLVED")
             self.assertIsNone(interpreted["nearest_sample"])
             again=run_mummer(genomes,root/"again",root/"cache")
             self.assertEqual(again["alignment_jobs"],0)
