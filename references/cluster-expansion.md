@@ -128,3 +128,11 @@ are rejected to avoid silently treating reads as assemblies.
 Mashpit and MLST routing still use the SKESA assembly. Thus users can start from
 reads, and the fine-resolution comparison uses reads directly, but the whole
 screen is not assembly-free. Assembly failure still stops the initial screen.
+
+## Assembly backend
+
+Assembly inputs default to cached minimap2/paftools target-to-candidate
+comparisons. The split-kmer criteria above apply only to SKA. Assembly coverage,
+variant rules, and alternative MUMmer settings are documented in
+[assembly-comparison.md](assembly-comparison.md). New batches reuse previous
+alignments; expansion does not require a pairwise matrix or tree.

@@ -1,0 +1,24 @@
+{
+  "policy_version": "1.0.0",
+  "backend": "mummer",
+  "mummer_version": "4.0.0",
+  "alignment": {
+    "anchor_mode": "maxmatch",
+    "min_match": 20,
+    "min_cluster": 65,
+    "break_length": 200,
+    "max_gap": 90,
+    "min_alignment_identity": 0,
+    "min_alignment_length": 0
+  },
+  "comparability": {
+    "min_target_aligned_fraction": 0.85,
+    "min_candidate_aligned_fraction": 0.85
+  },
+  "execution": {
+    "workers": 4,
+    "command_timeout_seconds": 600
+  },
+  "criteria_source": "IsoScout assembly-comparison v1: explicit coverage criteria, not user-specified thresholds or strain cutoffs. Alignment uses MUMmer defaults and one-to-one filtering; no density or contig-edge SNP filtering.",
+  "metric": "ACGT substitutions in unambiguously mapped one-to-one alignments; indels and ambiguous bases reported separately"
+}

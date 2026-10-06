@@ -6,8 +6,9 @@ Run the unit and mocked workflow tests from the repository root:
 PYTHONPYCACHEPREFIX=/tmp/isoscout_pycache python3 -m unittest discover -s tests -v
 ```
 
-The optional offline integration test uses the pinned SKA2 executable on seeded
-DNA with known 1-SNP and 3-SNP differences. Run it in the configured container:
+Optional offline integration tests exercise pinned SKA2, minimap2/paftools and
+MUMmer executables on seeded DNA with known differences, indels and reverse
+complements. Cache tests verify incremental work, invalidation and failures. Run it in the configured container:
 
 ```bash
 ISOSCOUT_TOOL_TESTS=1 python3 -m unittest discover -s tests -v

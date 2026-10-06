@@ -115,7 +115,7 @@ class AdaptiveSelectionTests(unittest.TestCase):
         fetch = {"commands": [], "verified": {acc: f"/tmp/{acc}.fa" for acc in accessions[:-1]}, "unavailable": accessions[-1:]}
         interpretation = {"status": "COMPARED", "ranked": [{"sample": accessions[0], "cluster": "C1", "snp_distance": 2.}], "excluded_comparisons": [], "warnings": []}
         with patch("screen_isolate.fetch_genomes", return_value=fetch) as download, patch("screen_isolate.run_ska", return_value={"commands": [], "distances": []}) as ska, patch("screen_isolate.interpret_snp_resolution", return_value=interpretation), patch("screen_isolate.render_from_interpretation", return_value={"status": "SKIPPED"}):
-            actual = run_snp_resolution(self.case.source, self.case.root / "query.fa", "C1", self.case.root / "snp", self.case.database)
+            actual = run_snp_resolution(self.case.source, self.case.root / "query.fa", "C1", self.case.root / "snp", self.case.database, snp_backend="ska")
         self.assertEqual(download.call_args.args[0], accessions)
         self.assertEqual(set(ska.call_args.args[0]), {"QUERY", *accessions[:-1]})
         self.assertEqual(load_json(self.case.root / "snp" / "targets.json"), preview)
@@ -137,7 +137,7 @@ class AdaptiveSelectionTests(unittest.TestCase):
         fetch = {"commands": [], "verified": {acc: f"/tmp/{acc}.fa" for acc in wanted}, "unavailable": []}
         interpretation = {"status": "COMPARED", "ranked": [], "excluded_comparisons": [], "warnings": []}
         with patch("screen_isolate.fetch_genomes", return_value=fetch) as download, patch("screen_isolate.run_ska", return_value={"commands": [], "distances": []}), patch("screen_isolate.interpret_snp_resolution", return_value=interpretation), patch("screen_isolate.render_from_interpretation", return_value={"status": "SKIPPED"}):
-            actual = run_snp_resolution(self.case.source, self.case.root / "query.fa", "C1", self.case.root / "snp", self.case.database, selection_mode="all_returned")
+            actual = run_snp_resolution(self.case.source, self.case.root / "query.fa", "C1", self.case.root / "snp", self.case.database, snp_backend="ska", selection_mode="all_returned")
         self.assertEqual(download.call_args.args[0], wanted)
         self.assertEqual(len(wanted), 200)
         self.assertEqual(actual["snp_resolution"]["coverage"]["returned_unexamined"], [])

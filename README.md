@@ -75,7 +75,7 @@ A first run typically takes a few minutes. If you don't know the organism ahead 
 
 ## What this actually does
 
-Screens a bacterial isolate — raw paired Illumina reads or an assembly — against [Mashpit](https://github.com/tongzhouxu/mashpit), a MinHash-sketch database of NCBI Pathogen Detection SNP clusters, and optionally refines candidates using split-kmer SNP comparisons with [ska2](https://github.com/bacpop/ska.rust). It tells you which known cluster of bacteria your sample most resembles — useful for narrowing down a possible outbreak connection, though it is a screening tool, not proof of one (see [references/limitations.md](references/limitations.md)).
+Screens a bacterial isolate — raw paired Illumina reads or an assembly — against [Mashpit](https://github.com/tongzhouxu/mashpit), a MinHash-sketch database of NCBI Pathogen Detection SNP clusters, and optionally refines candidates using target-to-candidate assembly comparisons with [minimap2](https://github.com/lh3/minimap2) and paftools (legacy SKA2 for paired reads). It tells you which known cluster of bacteria your sample most resembles — useful for narrowing down a possible outbreak connection, though it is a screening tool, not proof of one (see [references/limitations.md](references/limitations.md)).
 
 Every command, threshold, and parameter it runs is fixed in version-controlled config (`config/*.json`) — the AI assistant only runs one script and reports the result back to you; it never invents a bioinformatics command or a cutoff on its own. See [SKILL.md](SKILL.md) for the full technical contract it follows.
 
@@ -89,22 +89,17 @@ You need two things: the container image, and a Mashpit database for at least on
 
 The container image uses `ghcr.io/tongzhouxu/isoscout`; the examples tag it locally as `isoscout:local`.
 
-**1. Get the image** — pull the published baseline image:
+**1. Build the image** — from this checkout:
 
 ```bash
-# The package is public; no GHCR login is needed to pull it.
-docker pull --platform linux/amd64 ghcr.io/tongzhouxu/isoscout:latest
-docker tag ghcr.io/tongzhouxu/isoscout:latest isoscout:local
+docker build --platform linux/amd64 -f container/Dockerfile -t isoscout:local .
 ```
 
-This image was published on 2026-10-01 and predates the adaptive selection,
-cluster expansion, and bundled membership code in this checkout. A clean build
-from `container/Dockerfile` currently fails at conda dependency resolution. To
-test the updated code with the existing pinned tools, run from the repository
-root and add `--volume "$PWD:/opt/isoscout:ro"` to the `docker run` command below.
-All 89 tests, including the real SKA2 test, passed this way on 2026-10-02.
-Keep the checkout revision with any results produced this way: the configured
-container digest identifies the baseline image, not the mounted source tree.
+The recipe extends the pinned published baseline image, preserves its Mashpit
+and Python environment, and installs the assembly-comparison tools in a separate
+environment from an explicit package lock. It includes the current source tree.
+Record the built image ID and checkout commit with each run. The configured
+baseline digest alone does not identify the derived image or updated source.
 
 The published image is `linux/amd64` only: `quast=5.3.0` has no native
 `linux/arm64` build for the pinned Python 3.11. Use `--platform linux/amd64`
@@ -148,7 +143,15 @@ docker run --rm --platform linux/amd64 \
 - Omit `--organism` to auto-detect it with local `mlst` against its bundled PubMLST schemes instead of asserting it.
 - The output directory must not already exist — nothing gets silently overwritten.
 
-Add `--snp-resolve` to also download selected returned representative genomes from NCBI and compute split-kmer SNP distances with ska2 once a Mashpit candidate is found — a Neighbor-Joining tree, a per-cluster distance summary, and a confidence comparison between the nearest and next-nearest cluster. This is the only step that reaches out to the network (for public reference genomes; the query itself is never uploaded), so it's opt-in. See [references/snp-resolution.md](references/snp-resolution.md).
+Add `--snp-resolve` to compare the target assembly directly with selected
+candidate assemblies using minimap2 and its upstream paftools variant caller.
+`--assembly-manifest` supplies local accession/path/sha256 records; only missing
+candidates are downloaded. `--comparison-cache` reuses completed pairs during
+expansion or a subsequent run. Reports retain SNPs, indels, coverage, ties and
+unresolved comparisons. No candidate-to-candidate matrix or tree is calculated
+for assemblies. MUMmer4 is available with `--snp-backend mummer`; paired reads
+retain legacy SKA2. See [assembly comparison](references/assembly-comparison.md)
+and [selection policy](references/snp-resolution.md).
 
 Add `--snp-selection-mode all_returned` to compare every valid unique returned representative when the recorded 200-attempt budget fits. Supply `--query-accession` if the query itself appears in the database. Add `--snp-expand` to enable SNP refinement plus bounded exploration of additional members from the exact NCBI cluster release. The revised default prioritizes SNP-leading clusters after broad representative screening, reserves rotating slots for alternatives, and requires focused qualifying coverage before a stability stop. `--refinement-policy PATH` accepts an explicit versioned policy file with recorded budgets. Each round records allocation and stopping rationale; stable sampling is not exhaustive search or proof of nearest-genome recovery. For paired-read inputs, SKA2 uses cleaned reads directly, although Mashpit still needs the generated assembly. See [cluster expansion](references/cluster-expansion.md) and [software verification](references/verification.md). The implementation and comparability defaults require biological validation before strain-assignment claims.
 
@@ -158,14 +161,14 @@ All five [databases-v2](https://github.com/tongzhouxu/IsoScout/releases/tag/data
 then published with archive checksums and a release manifest. They bundle exact-release metadata
 and cluster-membership tables so expansion can work after NCBI removes that
 release. Existing packages continue to use exact-release retrieval while it is
-available. Reference genome assemblies for SKA2 still require a separate download.
+available. Candidate assemblies must be supplied locally or downloaded separately.
 
 ### Reading the result
 
 Three primary files land in the output directory, alongside stage-specific
 audits and logs:
 
-- **`report.md`** — a plain-language summary for a non-technical reader: organism determination, read QC when the input was raw reads, Mashpit's candidate clusters and scores plus its own Mash-based tree, and (with `--snp-resolve`) the ska2 SNP tables, confidence statement, and SNP tree — both trees rendered as PNGs with the query highlighted.
+- **`report.md`** — a plain-language summary for a non-technical reader: organism determination, read QC when the input was raw reads, Mashpit's candidate clusters and scores plus its own Mash-based tree, and (with `--snp-resolve`) the target-to-candidate SNP table, alignment coverage and distance plot (an SNP tree is available only on the legacy SKA path).
 - **`result.json`** — the structured, authoritative result. Use `status`, `stop_reason`, and `user_summary`.
 - **`provenance.json`** — checksums, pinned tool versions, and every command actually run, for reproducibility.
 
@@ -196,7 +199,7 @@ database, per Manual setup above.
 - [references/database-routing.md](references/database-routing.md) — organism routing rules
 - [references/qc-policy.md](references/qc-policy.md) — QC thresholds and their evidence basis
 - [references/mashpit-interpretation.md](references/mashpit-interpretation.md) — how a Mashpit result is labeled
-- [references/snp-resolution.md](references/snp-resolution.md) — the optional ska2 SNP-resolution step
+- [references/snp-resolution.md](references/snp-resolution.md) — the optional SNP-refinement step
 - [references/cluster-expansion.md](references/cluster-expansion.md) — focused member expansion and resource limits
 - [references/verification.md](references/verification.md) — software test commands and interpretation limits
 - [references/limitations.md](references/limitations.md) — scope and scientific limitations

@@ -131,7 +131,8 @@ def _similarity_section(result: dict[str, Any]) -> list[str]:
 
 def _snp_section(result: dict[str, Any]) -> list[str]:
     snp = result.get("snp_resolution")
-    lines = ["## Step 3: Compared at SNP resolution (ska2)", ""]
+    backend = (snp or {}).get("backend","ska")
+    lines = [f"## Step 3: Compared at SNP resolution ({backend})", ""]
     if not snp:
         lines.append("Not run for this screen (pass `--snp-resolve` to enable it).")
         return lines
@@ -170,7 +171,7 @@ def _snp_section(result: dict[str, Any]) -> list[str]:
         lines.extend(["", "The allocation audit records every requested accession, lane, cursor, and rationale in `snp_resolution/expansion.json`.", ""])
     query_input = snp.get("query_input", {})
     if query_input:
-        lines.extend(["Query used for SKA2: **" + ("cleaned paired-end reads" if query_input["type"] == "paired_reads" else "assembly") + "**.", ""])
+        lines.extend(["Target input: **" + ("cleaned paired-end reads" if query_input["type"] == "paired_reads" else "assembly") + "**.", ""])
     status = snp.get("status")
     if snp.get("selection") or snp.get("decisions"):
         lines.extend(["[Reference selection and inclusion/exclusion reasons](snp_resolution/targets.json)", ""])
@@ -226,6 +227,26 @@ def _snp_section(result: dict[str, Any]) -> list[str]:
                  f"{mash_best.get('cluster', 'unknown')}; comparison: {agreement_text}. "
                  "This is not agreement with an independent cluster label or proof of the globally nearest genome.")
     lines.append("")
+
+    if backend in {"mummer","minimap2"}:
+        lines.extend([
+            f"Each candidate was aligned directly to the target assembly using {backend}. No candidate-to-candidate matrix was calculated.", "",
+            snp.get("confidence",{}).get("statement","No qualifying comparisons."), "",
+            "| Candidate | Cluster | SNPs | Indel bases | Target aligned (%) | Candidate aligned (%) |",
+            "|---|---|---:|---:|---:|---:|",
+        ])
+        for row in snp.get("ranked",[])[:TOP_N_GENOMES]:
+            lines.append(f"| {row['sample']} | {row['cluster']} | {row['snp_distance']} | {row['indel_bases']} | "
+                         f"{100*row['target_aligned_fraction']:.2f} | {100*row['candidate_aligned_fraction']:.2f} |")
+        lines.extend(["", "All minimum-SNP-count ties: " + ", ".join(snp.get("nearest_samples",[])),
+                      "Minimum SNP rate per aligned target Mb: " + ", ".join(snp.get("nearest_by_aligned_snp_rate",[])), ""])
+        if snp.get("ranking_basis_conflict"):
+            lines.append("**Closest-genome conclusion unresolved:** SNP-count and aligned-SNP-rate minima disagree.")
+        if (snp.get("ranking_image") or {}).get("status")=="PASS":
+            lines.extend(["", "![Candidate SNP distances and alignment coverage](snp_resolution/candidate_distances.png)"])
+        lines.extend(["", "Full pair-level metrics, failures, criteria and cache records: [comparison audit](snp_resolution/interpretation.json).",
+                      "A target-only comparison does not define a phylogenetic tree."])
+        return lines
 
     lines.append(
         "SKA2 counts differences in comparable split-kmer contexts. Ranking includes only references "

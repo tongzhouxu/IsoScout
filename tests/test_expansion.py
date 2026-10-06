@@ -300,7 +300,7 @@ class IterativeWorkflowTests(unittest.TestCase):
                 raise WorkflowError("round tool failure")
             return {"commands": [], "distances": []}
         with patch("screen_isolate.load_json", side_effect=config), patch("screen_isolate.fetch_genomes", side_effect=fetch) as download, patch("screen_isolate.run_ska", side_effect=ska), patch("screen_isolate.interpret_snp_resolution", side_effect=interpret_targets), patch("screen_isolate.discover_members", return_value=membership), patch("screen_isolate.render_from_interpretation", return_value={"status": "SKIPPED"}):
-            result = run_snp_resolution(self.case.source, self.case.root / "query.fa", "C1", self.case.root / "snp", self.case.database,
+            result = run_snp_resolution(self.case.source, self.case.root / "query.fa", "C1", self.case.root / "snp", self.case.database, snp_backend="ska",
                                         expand=True, query_accession=query_accession)
         return result["snp_resolution"], [call.args[0] for call in download.call_args_list]
 

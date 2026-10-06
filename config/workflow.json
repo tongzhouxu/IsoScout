@@ -1,6 +1,6 @@
 {
   "skill_version": "1.4.0",
-  "workflow_version": "1.8.0",
+  "workflow_version": "1.9.0",
   "container_image": "ghcr.io/tongzhouxu/isoscout:latest",
   "container_digest": "sha256:0ee316333279d2fbb28ba78605aa25ae86b0cdf9321cac15dd78f2c349ad9cf9",
   "tools": {
@@ -11,19 +11,55 @@
     "sourmash": "4.6.1",
     "mashpit": "git-538d3421302fe6dd129780605b8ff5dedbf4c046c",
     "ska": "0.5.1",
-    "datasets": "18.35.0"
+    "datasets": "18.35.0",
+    "nucmer": "4.0.0",
+    "minimap2": "2.31-r1302"
   },
   "assembly": {
-    "fastp_args": ["--detect_adapter_for_pe", "--length_required", "50"],
-    "skesa_args": ["--cores", "0", "--memory", "16"],
-    "quast_args": ["--min-contig", "500", "--threads", "2"]
+    "fastp_args": [
+      "--detect_adapter_for_pe",
+      "--length_required",
+      "50"
+    ],
+    "skesa_args": [
+      "--cores",
+      "0",
+      "--memory",
+      "16"
+    ],
+    "quast_args": [
+      "--min-contig",
+      "500",
+      "--threads",
+      "2"
+    ]
   },
   "databases": [
-    {"name": "salmonella", "organism_key": "salmonella", "organism": "Salmonella"},
-    {"name": "ecoli_shigella", "organism_key": "ecoli_shigella", "organism": "Escherichia coli / Shigella"},
-    {"name": "listeria", "organism_key": "listeria", "organism": "Listeria"},
-    {"name": "campylobacter", "organism_key": "campylobacter", "organism": "Campylobacter"},
-    {"name": "cronobacter", "organism_key": "cronobacter", "organism": "Cronobacter"}
+    {
+      "name": "salmonella",
+      "organism_key": "salmonella",
+      "organism": "Salmonella"
+    },
+    {
+      "name": "ecoli_shigella",
+      "organism_key": "ecoli_shigella",
+      "organism": "Escherichia coli / Shigella"
+    },
+    {
+      "name": "listeria",
+      "organism_key": "listeria",
+      "organism": "Listeria"
+    },
+    {
+      "name": "campylobacter",
+      "organism_key": "campylobacter",
+      "organism": "Campylobacter"
+    },
+    {
+      "name": "cronobacter",
+      "organism_key": "cronobacter",
+      "organism": "Cronobacter"
+    }
   ],
   "mashpit": {
     "profile": "default-v1",
@@ -33,11 +69,20 @@
   },
   "similarity_diagnostics": {
     "profile": "distribution-v2",
-    "rank_checkpoints": [50, 100, 200]
+    "rank_checkpoints": [
+      50,
+      100,
+      200
+    ]
   },
   "snp_resolution": {
     "profile": "default-v1",
     "kmer_size": 31,
-    "read_filters": {"min_count": 3, "min_qual": 20, "qual_filter": "strict"}
+    "read_filters": {
+      "min_count": 3,
+      "min_qual": 20,
+      "qual_filter": "strict"
+    },
+    "assembly_backend": "minimap2"
   }
 }

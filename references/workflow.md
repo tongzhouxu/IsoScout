@@ -47,6 +47,6 @@ After parsing Mashpit, the workflow runs `analyze_similarity_distribution.py` to
 
 ## Optional SNP resolution
 
-With `--snp-resolve`, once Mashpit returns a candidate, an additional stage selects selected returned representatives across clusters, downloads them from NCBI, and runs ska2 to compute pairwise SNP distances against the query. See [references/snp-resolution.md](snp-resolution.md). This stage is opt-in and its failure only downgrades `result.json` to a warning — it never turns an otherwise-successful Mash screen into a stopped one.
+With `--snp-resolve`, once Mashpit returns a candidate, an additional stage selects selected returned representatives across clusters, downloads them from NCBI, and compares assemblies directly with the target using minimap2/paftools, or uses the legacy SKA path for reads. See [references/snp-resolution.md](snp-resolution.md). This stage is opt-in and its failure only downgrades `result.json` to a warning — it never turns an otherwise-successful Mash screen into a stopped one.
 
-With `--snp-expand` (workflow 1.8.0), refine in evidence-led focused rounds over the exact-release member pool with reserved rotating alternative coverage. Cleaned read pairs feed SKA2 directly when the input was reads. See [cluster-expansion.md](cluster-expansion.md) for resource limits, feedback, and stop states.
+With `--snp-expand` (workflow 1.9.0), refine in evidence-led focused rounds over the exact-release member pool with reserved rotating alternative coverage. Cleaned read pairs feed SKA2 directly when the input was reads. See [cluster-expansion.md](cluster-expansion.md) for resource limits, feedback, and stop states.

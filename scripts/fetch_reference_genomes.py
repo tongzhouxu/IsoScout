@@ -9,12 +9,33 @@ database only retains sourmash signatures, not the representative assemblies.
 from __future__ import annotations
 
 import argparse
+import csv
+import re
 import time
 import zipfile
 from pathlib import Path
 from typing import Any
 
-from common import WorkflowError, require_executable, run_logged, write_json
+from common import WorkflowError, require_executable, run_logged, sha256_file, write_json
+
+
+def read_local_manifest(path: Path) -> dict[str, dict[str, str]]:
+    """Explicit accession/path/SHA-256 mapping; paths are relative to the manifest."""
+    result = {}
+    with path.open(newline="") as handle:
+        reader = csv.DictReader(handle, delimiter="\t")
+        if not {"accession", "path", "sha256"} <= set(reader.fieldnames or []):
+            raise WorkflowError("Assembly manifest requires accession, path and sha256 columns")
+        for row in reader:
+            accession = row["accession"]
+            if not re.fullmatch(r"[A-Za-z0-9_.-]+", accession) or accession == "QUERY" or accession in result:
+                raise WorkflowError("Invalid, reserved or duplicate assembly manifest accession")
+            if not re.fullmatch(r"[0-9a-f]{64}",row["sha256"]):
+                raise WorkflowError("Invalid assembly manifest SHA-256")
+            assembly = Path(row["path"]).expanduser()
+            if not assembly.is_absolute(): assembly = path.resolve().parent/assembly
+            result[accession] = {"path":str(assembly.resolve()),"sha256":row["sha256"]}
+    return result
 
 
 def locate_fasta(package_dir: Path, accession: str) -> Path | None:
@@ -64,17 +85,28 @@ def download_batch(datasets_exe: str, accessions: list[str], batch_dir: Path) ->
 
 def fetch_genomes(
     accessions: list[str], output_dir: Path, attempts: int, retry_delay_seconds: float,
+    local_manifest: Path | None = None,
 ) -> dict[str, Any]:
     output_dir.mkdir(parents=True, exist_ok=True)
     if not accessions:
         result = {"status": "COMPLETE", "verified": {}, "unavailable": [], "errors": {}, "commands": []}
         write_json(output_dir / "fetch_reference_genomes.json", result)
         return result
-    datasets_exe = require_executable("datasets")
     verified: dict[str, str] = {}
     errors: dict[str, str] = {}
     commands: list[list[str]] = []
     pending = sorted(set(accessions))
+    local_records = read_local_manifest(local_manifest) if local_manifest else {}
+    local_used = []
+    for accession in pending:
+        if accession not in local_records: continue
+        row = local_records[accession]; path = Path(row["path"])
+        if not path.is_file() or sha256_file(path) != row["sha256"]:
+            raise WorkflowError(f"Local assembly missing or checksum mismatch: {accession}; no download substitution made")
+        verified[accession] = str(path)
+        local_used.append(accession)
+    pending = [accession for accession in pending if accession not in verified]
+    datasets_exe = require_executable("datasets") if pending else None
     for attempt in range(1, attempts + 1):
         if not pending:
             break
@@ -105,6 +137,9 @@ def fetch_genomes(
         "unavailable": sorted(pending),
         "errors": errors,
         "commands": commands,
+        "local_manifest": str(local_manifest) if local_manifest else None,
+        "local_manifest_sha256": sha256_file(local_manifest) if local_manifest else None,
+        "local_assemblies": local_used,
     }
     write_json(output_dir / "fetch_reference_genomes.json", result)
     return result

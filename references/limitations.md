@@ -14,7 +14,7 @@ are only reproducible when the exact database archive and checksums, tool image,
 code revision (especially for a bind-mounted checkout), downloaded reference
 assemblies, and run provenance are retained.
 
-Optional `--snp-resolve` (see [references/snp-resolution.md](snp-resolution.md)) refines a Mashpit candidate with ska2 pairwise SNP distances against representative genomes re-downloaded from NCBI. It is a screening refinement bounded by whatever representatives the underlying Mashpit database happened to select, not a validated outbreak-confirmation pipeline, and it introduces a network dependency the rest of this workflow does not otherwise have.
+Optional `--snp-resolve` (see [references/snp-resolution.md](snp-resolution.md)) refines a Mashpit candidate with assembly-alignment SNP comparisons (or legacy SKA for reads) against candidates supplied locally or downloaded from NCBI. It is a screening refinement bounded by whatever representatives the underlying Mashpit database happened to select, not a validated outbreak-confirmation pipeline, and it introduces a network dependency the rest of this workflow does not otherwise have.
 
 `--snp-expand` extends beyond representatives within selected returned clusters, using exact-release membership and bounded rounds. Metadata gaps, absent assemblies, failed downloads, truncated searches, and unexamined members remain explicit. Correct concordance with a cluster label does not establish recovery of the closest genome. Focused expansion and finite-pool completion improve coverage only within the recorded resource budget; they cannot assign universal strain identity or establish that no closer unexamined isolate exists. Direct-read SKA2 refinement is supported, but the initial Mashpit screen still requires an assembly. See [verification.md](verification.md) for the limits of software tests versus biological validation.
 
@@ -23,3 +23,5 @@ their expansion still depends on NCBI retaining the matching release. The
 published `databases-v2` packages include checked copies of
 those tables. This preserves cluster membership but not the downloaded genome
 assemblies used in each SNP run, which must also be kept for exact replay.
+
+Assembly SNP counts depend on alignment, mapping ambiguity and compared positions. They are not interchangeable with filtered pipeline or tree-derived distances. Read [assembly-comparison.md](assembly-comparison.md) before interpreting coverage or a unique nearest candidate.

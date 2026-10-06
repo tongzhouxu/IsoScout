@@ -15,18 +15,19 @@ Use the bundled scripts for computation. Do not construct bioinformatics command
    ```bash
      python3 scripts/screen_isolate.py INPUT [INPUT_R2] --output OUTPUT_DIR \
      [--database-root DATABASE_ROOT] [--organism ORGANISM_KEY] [--snp-resolve | --snp-expand] [--snp-selection-mode adaptive|all_returned] [--query-accession ACCESSION] \
-     [--refinement-policy POLICY_JSON]
+     [--refinement-policy POLICY_JSON] [--snp-backend minimap2|mummer|ska] \
+     [--assembly-manifest ASSEMBLIES_TSV] [--comparison-cache CACHE_DIR] [--comparison-workers 4]
    ```
 
 3. Read `OUTPUT_DIR/result.json`. Use `status`, `stop_reason`, and `user_summary` as the authoritative result.
 4. Report the concise summary first. State that a candidate is a screening result, not proof of outbreak relatedness. Recommend a validated high-resolution SNP comparison when a candidate is present.
 5. Link the user to `result.json`, `provenance.json`, `report.md`, and retained logs. Never invent a result if a file is missing or a stage failed.
 
-`OUTPUT_DIR/report.md` is a plain-language rendering of `result.json` for a non-technical reader — organism determination, Mashpit's candidate clusters and scores, and (when `--snp-resolve` ran) the ska2 SNP distance tables, confidence statement, and Newick tree. It is written on every run, not only `--snp-resolve` ones. Prefer linking to it over reciting JSON when the audience isn't reading code.
+`OUTPUT_DIR/report.md` is a plain-language rendering of `result.json` for a non-technical reader — organism determination, Mashpit's candidate clusters and scores, and (when `--snp-resolve` ran) the target-to-candidate SNP tables, alignment coverage and interpretation. It is written on every run, not only `--snp-resolve` ones. Prefer linking to it over reciting JSON when the audience isn't reading code.
 
-Pass `--snp-resolve` to additionally compute ska2 pairwise SNP distances between the query and selected Mashpit representatives across returned clusters once a candidate is found (read [references/snp-resolution.md](references/snp-resolution.md) first). This is opt-in because, unlike the rest of the screen, it downloads representative genomes from NCBI. Report `result.json`'s `snp_resolution` block alongside the Mash result when present, including whether it agrees with Mashpit's top candidate.
+Pass `--snp-resolve` to compare the target assembly directly with selected Mashpit representatives using minimap2 and its upstream paftools variant caller once a candidate is found (read [references/snp-resolution.md](references/snp-resolution.md) first). This is opt-in because, unlike the rest of the screen, it may download candidate genomes from NCBI; `--assembly-manifest` supplies checksum-verified local assemblies first. Report `result.json`'s `snp_resolution` block alongside the Mash result when present, including whether it agrees with Mashpit's top candidate.
 
-With `--snp-expand`, additionally explore members of selected returned clusters from the exact NCBI release under the versioned round/resource policy. Read [references/cluster-expansion.md](references/cluster-expansion.md). Report cluster-label concordance separately from the nearest examined reference set (all ties), per-cluster attempted/downloaded/qualifying/excluded/unexamined coverage, allocation choices, unresolved clusters, stop reason, and failed downloads. The versioned focused scheduler reserves rotating alternative slots and requires focused qualifying comparisons before sampled stability. `--refinement-policy` selects an explicit policy file; do not silently raise default budgets. Never equate correct cluster concordance, sampled stability, or zero observed SNPs with global nearest-genome recovery or strain identity. Paired-read screens use cleaned reads for SKA2, while initial Mashpit screening still uses the generated assembly.
+With `--snp-expand`, additionally explore members of selected returned clusters from the exact NCBI release under the versioned round/resource policy. Read [references/cluster-expansion.md](references/cluster-expansion.md). Report cluster-label concordance separately from the nearest examined reference set (all ties), per-cluster attempted/downloaded/qualifying/excluded/unexamined coverage, allocation choices, unresolved clusters, stop reason, and failed downloads. The versioned focused scheduler reserves rotating alternative slots and requires focused qualifying comparisons before sampled stability. `--refinement-policy` selects an explicit policy file; do not silently raise default budgets. Never equate correct cluster concordance, sampled stability, or zero observed SNPs with global nearest-genome recovery or strain identity. Assembly refinement compares only target–candidate pairs, reuses completed alignments, and does not construct a tree. Paired-read screens retain the legacy SKA2 path using cleaned reads; initial Mashpit screening uses the generated assembly. Use `--snp-backend mummer` only when that explicit alternative is desired, and never silently change backends on failure.
 
 When available, use the database package's verified membership snapshot for
 expansion. Legacy packages may retrieve the exact-release tables; a corrupt
@@ -38,6 +39,8 @@ Use `--organism` when the organism is already known. It accepts `salmonella`, `e
 
 Every successfully parsed Mashpit query also writes `similarity_distribution/summary.json` and, when plotting is available, `similarity_distribution/rank_similarity.png`. Report any return-limit or omitted-near-tie warnings from `result.json`. These diagnostics preview policy 3.0.1 (global first 50, up to 100 returned references in adaptive mode, 200 total reference attempts). Sketch tolerance is descriptive and never excludes a cluster from SNP consideration. With `--snp-resolve`, the same selector supplies the download list and records decisions in `snp_resolution/targets.json`. Report unexamined returned clusters and members, resource omissions, failed downloads, comparability exclusions, and all nearest ties. Distinguish Mashpit-displayed alternatives from SNP-tested alternatives. `all_returned` requires sufficient recorded budget and does not silently select a partial set. Read [references/similarity-distribution.md](references/similarity-distribution.md) to interpret the score tolerance and unknown boundaries.
 
+For local assembly manifests, cache identity, alignment-quality criteria and standalone candidate-set comparisons, read [references/assembly-comparison.md](references/assembly-comparison.md). Report all minimum-count ties and any disagreement with the SNP-rate ranking. Missing or low-coverage comparisons are not zero-SNP matches.
+
 ## Apply stop rules
 
 Stop before Mashpit when input validation or broad assembly QC is `FAIL`, local MLST routing is unsupported or uncertain, the selected database is absent or invalid, or an external command fails. Proceed with visible caveats when QC or MLST routing is `WARN`. Query only the selected Mashpit database and never substitute another database.
@@ -47,7 +50,7 @@ Read references only as needed:
 - [references/qc-policy.md](references/qc-policy.md): deterministic PASS/WARN/FAIL rules and evidence
 - [references/database-routing.md](references/database-routing.md): user/local-MLST routing contract
 - [references/mashpit-interpretation.md](references/mashpit-interpretation.md): result categories and wording
-- [references/snp-resolution.md](references/snp-resolution.md): optional ska2 SNP-distance refinement of a Mashpit candidate
+- [references/snp-resolution.md](references/snp-resolution.md): assembly or read SNP-distance refinement of a Mashpit candidate
 - [references/limitations.md](references/limitations.md): scope and scientific limitations
 
 ## Preserve reproducibility
