@@ -76,6 +76,10 @@ def summary_text(result: dict[str, Any]) -> str:
             + (", ".join(snp.get("nearest_clusters", [])) or "unresolved")
             + ". Correct cluster concordance does not establish recovery of the closest genome."
         )
+        if snp.get("cluster_status"):
+            lines.append("Cluster resolution: " + snp["cluster_status"] + "; supported stored label(s): "
+                         + (", ".join(snp.get("cluster_candidates", [])) or "none")
+                         + ". Genome resolution: " + snp["genome_status"] + ".")
         uncertainty = (snp.get("expansion") or {}).get("remaining_uncertainty") or {}
         if uncertainty.get("budget_or_round_limit_prevented_required_exploration"):
             lines.append("Focused or alternative exploration remained incomplete at the resource or round limit.")

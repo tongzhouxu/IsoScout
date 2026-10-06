@@ -27,17 +27,23 @@ def interpret(comparisons: list[dict], targets: list[dict], best_cluster: str | 
               "newick_tree":None,"tree_status":"NOT_REQUESTED","warnings":warnings}
     if excluded: warnings.append(f"{len(excluded)} candidate comparisons were excluded or failed; see per-candidate reasons.")
     if not ranked:
-        return {**result,"status":"INSUFFICIENT_DATA","nearest_samples":[],"nearest_clusters":[],"nearest_snp_distance":None}
+        return {**result,"status":"INSUFFICIENT_DATA","nearest_samples":[],"nearest_clusters":[],"nearest_cluster":None,"nearest_snp_distance":None,
+                        "cluster_status":"INSUFFICIENT_DATA","cluster_candidates":[],"nearest_by_aligned_snp_rate_clusters":[],
+                        "genome_status":"INSUFFICIENT_DATA"}
     minimum = ranked[0]["snp_distance"]
     nearest = [row for row in ranked if row["snp_distance"]==minimum]
     nearest_ids = [row["sample"] for row in nearest]
     rate_min = min(row["snps_per_target_aligned_mb"] for row in ranked)
-    rate_ids = [row["sample"] for row in ranked if row["snps_per_target_aligned_mb"]==rate_min]
+    rate_ids = [row for row in ranked if row["snps_per_target_aligned_mb"]==rate_min]
     # A disagreement between minima is evidence of comparison-basis sensitivity,
     # not a reason to blend the two metrics into an unvalidated composite score.
-    conflict = not (set(nearest_ids) & set(rate_ids))
+    conflict = not (set(nearest_ids) & {row["sample"] for row in rate_ids})
     clusters = sorted({row["cluster"] for row in nearest})
-    unique_cluster = clusters[0] if len(clusters)==1 and not conflict else None
+    rate_clusters = sorted({row["cluster"] for row in rate_ids})
+    cluster_candidates = sorted(set(clusters) | set(rate_clusters))
+    unique_cluster = cluster_candidates[0] if len(cluster_candidates)==1 else None
+    cluster_status = "RESOLVED" if unique_cluster else "AMBIGUOUS"
+    genome_status = "RESOLVED" if len(nearest)==1 and not conflict else "AMBIGUOUS"
     if conflict: warnings.append("SNP-count and SNP-rate minima disagree because aligned sequence differs; the nearest genome is unresolved across these metrics.")
     if len(nearest)>1: warnings.append("Several references share the minimum observed SNP count; no unique nearest genome is resolved.")
     statement = (f"Minimum observed assembly-comparison distance: {minimum} ACGT substitutions among examined qualifying candidates. "
@@ -45,9 +51,15 @@ def interpret(comparisons: list[dict], targets: list[dict], best_cluster: str | 
                  "Indels and ambiguous bases are reported separately; density and contig-edge SNP filters are not applied. "
                  "Zero observed SNPs do not establish whole-genome identity or outbreak membership.")
     if conflict: statement += " SNP-count and SNP-rate rankings disagree; report an unresolved closest-genome conclusion."
+    if unique_cluster:
+        statement += " Count and aligned-rate minimum sets support one stored SNP-cluster label; genome ambiguity does not by itself make that cluster ambiguous."
+    else:
+        statement += " Count and aligned-rate minimum sets span several stored SNP-cluster labels; the cluster conclusion is unresolved."
     return {**result,"status":"AMBIGUOUS" if len(nearest)>1 or conflict else "COMPARED",
             "nearest_samples":nearest_ids,"nearest_sample":nearest_ids[0] if len(nearest_ids)==1 and not conflict else None,
             "nearest_clusters":clusters,"nearest_cluster":unique_cluster,"nearest_snp_distance":minimum,
-            "nearest_by_aligned_snp_rate":rate_ids,"ranking_basis_conflict":conflict,
+            "nearest_by_aligned_snp_rate":[row["sample"] for row in rate_ids],"ranking_basis_conflict":conflict,
+            "nearest_by_aligned_snp_rate_clusters":rate_clusters,"cluster_candidates":cluster_candidates,
+            "cluster_status":cluster_status,"genome_status":genome_status,
             "agrees_with_mash_top_candidate":unique_cluster==best_cluster if unique_cluster and best_cluster else None,
             "cluster_summary":cluster_summary(ranked),"confidence":{"statement":statement}}

@@ -74,6 +74,16 @@ break a SNP-count tie. The result is the nearest by the declared metric among
 examined qualifying candidates; it is not an exhaustive global nearest-genome
 answer, whole-genome identity, or outbreak confirmation.
 
+`cluster_status` and `genome_status` describe different conclusions. A cluster
+is `RESOLVED` when every reference in the count-minimum and aligned-rate-minimum
+sets has the same stored cluster label, even if several genomes tie or the two
+metrics choose different genomes. Multiple supported labels leave the cluster
+`AMBIGUOUS`; no qualifying evidence yields `INSUFFICIENT_DATA`. `cluster_candidates`
+retains the union of labels and `nearest_cluster` is populated only for a resolved
+cluster. `nearest_clusters` still describes count minima, preserving the
+expansion rule. Labels belong to the recorded database release; this does not
+compare them with an independent reference standard or translate newer releases.
+
 Detailed per-base calls remain in the pair cache alongside raw alignment files;
 round and user-facing summaries contain compact per-candidate measurements.
 Every round records backend, effective policy, tool hashes, successful jobs,

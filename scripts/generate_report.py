@@ -230,6 +230,11 @@ def _snp_section(result: dict[str, Any]) -> list[str]:
 
     if backend in {"mummer","minimap2"}:
         lines.extend([
+            "**Cluster resolution:** " + snp.get("cluster_status","not recorded") +
+            "; count/rate-supported cluster label(s): " + ", ".join(snp.get("cluster_candidates",nearest_clusters)) + ".",
+            "**Genome resolution:** " + snp.get("genome_status","not recorded") + ". Cluster labels are from the recorded database release.", "",
+        ])
+        lines.extend([
             f"Each candidate was aligned directly to the target assembly using {backend}. No candidate-to-candidate matrix was calculated.", "",
             snp.get("confidence",{}).get("statement","No qualifying comparisons."), "",
             "| Candidate | Cluster | SNPs | Indel bases | Target aligned (%) | Candidate aligned (%) |",
