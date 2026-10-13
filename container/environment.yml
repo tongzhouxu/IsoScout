@@ -15,4 +15,4 @@ dependencies:
   - setuptools=75.1.0
   - pip=24.2
   - pip:
-      - mashpit @ https://github.com/tongzhouxu/mashpit/archive/538d3421302fe6dd129780605b8ff5dedbf4c046c.tar.gz
+      - mashpit @ https://github.com/tongzhouxu/mashpit/archive/538d3421302fe6dd129780605b8ff5dedbf4c046.tar.gz
