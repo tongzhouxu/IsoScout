@@ -27,21 +27,23 @@ This is the AI assistant that will read your instructions, download things, and 
 - **Claude Code**: see [claude.com/claude-code](https://claude.com/claude-code) for the current install instructions for your computer.
 - **Codex**: see OpenAI's current Codex documentation for install instructions.
 
-Either one works equally well with this skill. Once installed, open it (this usually means: open the Terminal app on your computer, type the assistant's name, e.g. `claude`, and press Enter — the install instructions above will confirm the exact command for your setup) so you have a chat window open with it.
+Once installed, open the assistant so you have a chat window. Codex automatically discovers user skills placed at `~/.codex/skills/isoscout`; a checkout elsewhere still works when you point the assistant to its `SKILL.md`, as the prompt below does.
 
 ### Step 3 — Ask it to set everything up
 
-Copy the box below, paste it into your chat with Claude Code or Codex, replace `[ORGANISM]` with whichever of `salmonella`, `ecoli_shigella`, `listeria`, `campylobacter`, or `cronobacter` matches your sample (if you're not sure, just pick `cronobacter` for a first try — its database is much smaller and faster to download), and send it:
+Copy the box below and replace `[ORGANISM OR UNKNOWN]`. Supported keys are `salmonella`, `ecoli_shigella`, `listeria`, `campylobacter`, and `cronobacter`. Use `UNKNOWN` rather than guessing.
 
 ```
 Please set up IsoScout for me:
 
-1. Clone https://github.com/tongzhouxu/IsoScout
-   into a folder on my computer.
-2. Read that repository's README.md and follow its "Manual setup"
-   instructions to pull the published Docker image, and to download
-   and checksum-verify the [ORGANISM] database from its GitHub
-   Release into ~/.isoscout/databases/.
+1. Clone https://github.com/tongzhouxu/IsoScout. If this is Codex,
+   install it at ~/.codex/skills/isoscout; otherwise use a normal folder.
+2. Read its SKILL.md and README.md. Build the current Docker image from
+   this checkout as isoscout:local.
+3. My organism is [ORGANISM OR UNKNOWN]. If known, download and verify
+   that database-v2 package into ~/.isoscout/databases/. If UNKNOWN,
+   download and verify all five supported packages so local MLST can
+   route the sample. Do not guess or substitute an organism.
 
 Explain each step briefly as you go, and tell me clearly once
 everything is downloaded and ready.
@@ -51,21 +53,22 @@ It will likely pause partway through to ask your permission before running certa
 
 ### Step 4 — Ask it to screen your genome
 
-Once setup is done, copy this box, fill in the path to your genome file(s) and the organism, and send it:
+Once setup is done, fill in the path to your genome file(s). Include the organism only when you know it.
 
 ```
 Please screen this genome using IsoScout, which you
 just set up: [PATH TO YOUR .fasta FILE, OR YOUR TWO .fastq.gz FILES]
 
-Organism: [ORGANISM]
+Organism: [ORGANISM, or UNKNOWN]
 
 Once it finishes, open the report.md file it produces and explain
-the result to me in plain English — in particular, tell me which
-cluster it's closest to, how confident that is, and what you'd
-recommend I do next.
+the result to me in plain English. Tell me what evidence supports the
+result, whether there are alternatives or ties, what references were
+examined or left unexamined, the main limitations, and what I should
+do next.
 ```
 
-A first run typically takes a few minutes. If you don't know the organism ahead of time, say so instead of naming one — it can auto-detect it from your genome, it'll just take slightly longer.
+A first run typically takes a few minutes. When the organism is unknown, IsoScout uses local MLST to route among its five supported databases. That routing is not a general species-identification method.
 
 ### If something goes wrong
 
@@ -92,14 +95,16 @@ The container image uses `ghcr.io/tongzhouxu/isoscout`; the examples tag it loca
 **1. Build the image** — from this checkout:
 
 ```bash
-docker build --platform linux/amd64 -f container/Dockerfile -t isoscout:local .
+docker build --platform linux/amd64 \
+  --build-arg VCS_REF="$(git rev-parse HEAD)" \
+  -f container/Dockerfile -t isoscout:local .
 ```
 
 The recipe extends the pinned published baseline image, preserves its Mashpit
 and Python environment, and installs the assembly-comparison tools in a separate
 environment from an explicit package lock. It includes the current source tree.
-Record the built image ID and checkout commit with each run. The configured
-baseline digest alone does not identify the derived image or updated source.
+The host launcher records the built image ID and checkout commit with each run.
+The configured baseline digest alone does not identify this derived image.
 
 The published image is `linux/amd64` only: `quast=5.3.0` has no native
 `linux/arm64` build for the pinned Python 3.11. Use `--platform linux/amd64`
@@ -128,19 +133,13 @@ tables.
 ## Run a screen
 
 ```bash
-docker run --rm --platform linux/amd64 \
-  --volume "/absolute/path/to/data:/data:ro" \
-  --volume "$HOME/.isoscout/databases:/databases:ro" \
-  --volume "/absolute/path/to/results:/results" \
-  isoscout:local \
-  /data/sample.fasta \
+python3 scripts/launch_isoscout.py /absolute/path/to/sample.fasta \
   --organism salmonella \
-  --database-root /databases \
-  --output /results/sample-screen
+  --output /absolute/path/to/results/sample-screen
 ```
 
 - Input is one assembly (`.fa`/`.fasta`/`.fna`), or two paired-end FASTQ files — replace the assembly argument with both paths (e.g. `/data/sample_R1.fastq.gz /data/sample_R2.fastq.gz`) to run the fixed fastp → SKESA → QUAST assembly workflow first.
-- Omit `--organism` to auto-detect it with local `mlst` against its bundled PubMLST schemes instead of asserting it.
+- Omit `--organism` to route among the five supported databases with local `mlst` and its bundled PubMLST schemes. This does not identify arbitrary species, and all databases that routing may select must already be installed.
 - The output directory must not already exist — nothing gets silently overwritten.
 
 Add `--snp-resolve` to compare the target assembly directly with selected
@@ -176,20 +175,7 @@ audits and logs:
 
 Each successfully parsed Mashpit query now adds a rank–similarity plot and numerical diagnostics to the report. These show score gaps at ranks 50/100/200, the number of representatives within Mashpit's sketch tolerance of the best score, and whether retrieval or the current SNP selection policy may cut through a near-tie. They preview policy 3.0.1: include the global top 50 unique nonself representatives, use up to 50 more slots for alternative-cluster coverage and global rank, and cap total reference attempts (including member expansion) at 200. Sketch near-ties describe scores but do not exclude SNP candidates. `--snp-selection-mode all_returned` attempts all returned representatives if they fit the recorded 200-attempt budget. Every inclusion, resource omission, download, and qualifying or excluded comparison is recorded; these computational defaults still require biological validation.
 
-Full ranked scores, cluster composition, source checksums, and cutoff flags are saved in `similarity_distribution/summary.json`. See [the diagnostics guide](references/similarity-distribution.md) for interpretation and the standalone command for previous runs. Use the updated checkout mounted as described above; the existing published image is unchanged.
-
-## Test without biological tools or databases
-
-```bash
-PYTHONPYCACHEPREFIX=/tmp/isoscout_pycache python3 -m unittest discover -s tests -v
-```
-
-The default suite mocks external bioinformatics execution and does not need
-Docker, Mashpit, or a real database (87 tests; one optional integration test
-skipped on a host without SKA2). In the pinned-tool container,
-`ISOSCOUT_TOOL_TESTS=1` also runs the real SKA2 assembly/read test on seeded
-DNA. A real end-to-end run additionally needs the container and at least one
-database, per Manual setup above.
+Full ranked scores, cluster composition, source checksums, and cutoff flags are saved in `similarity_distribution/summary.json`. See [the diagnostics guide](references/similarity-distribution.md) for interpretation and the standalone command for previous runs.
 
 ## Reference docs
 

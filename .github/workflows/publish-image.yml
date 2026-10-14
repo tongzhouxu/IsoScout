@@ -1,9 +1,12 @@
-name: Publish container image
+name: Test and publish container image
 
 on:
   push:
+    branches:
+      - main
     tags:
       - "v*.*.*"
+  pull_request: {}
   workflow_dispatch: {}
 
 env:
@@ -11,7 +14,39 @@ env:
   IMAGE_NAME: ghcr.io/tongzhouxu/isoscout
 
 jobs:
+  test:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build test image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: container/Dockerfile
+          platforms: linux/amd64
+          load: true
+          tags: isoscout:test
+          build-args: |
+            VCS_REF=${{ github.sha }}
+
+      - name: Run software verification
+        run: >-
+          docker run --rm --platform linux/amd64
+          --entrypoint /usr/local/bin/_entrypoint.sh
+          --env ISOSCOUT_TOOL_TESTS=1
+          isoscout:test
+          python3 -m unittest discover -s /opt/isoscout/tests -v
+
   build-and-push:
+    if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
+    needs: test
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -45,6 +80,8 @@ jobs:
           file: container/Dockerfile
           platforms: linux/amd64
           push: true
+          build-args: |
+            VCS_REF=${{ github.sha }}
           tags: |
             ${{ env.IMAGE_NAME }}:latest
             ${{ env.IMAGE_NAME }}:${{ steps.tags.outputs.ref_tag }}

@@ -1,6 +1,5 @@
 """Software contracts for cached target-only assembly comparisons."""
 from __future__ import annotations
-import csv
 import json
 import os
 from pathlib import Path
@@ -13,9 +12,8 @@ ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT/"scripts"))
 from common import WorkflowError,load_json,sha256_file
 from run_mummer import run_mummer,union_length
-from fetch_reference_genomes import fetch_genomes,read_local_manifest
+from fetch_reference_genomes import fetch_genomes
 from interpret_assembly_comparison import interpret
-from generate_report import generate_report
 from site_fixture import comparison
 
 class PairTests(unittest.TestCase):

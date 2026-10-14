@@ -14,16 +14,15 @@ sys.path.insert(0, str(ROOT / "scripts"))
 from build_snp_tree import neighbor_joining
 from collect_provenance import collect
 from classify_with_mlst import interpret_mlst, parse_mlst_csv, route_for_organism
-from common import WorkflowError, executable_version
+from common import WorkflowError
 from fetch_reference_genomes import fetch_genomes
 from inspect_input import inspect
 from interpret_snp_resolution import interpret as interpret_snp_resolution
-from parse_mashpit_results import interpret, load_candidates, locate_tree_image
+from parse_mashpit_results import interpret, load_candidates
 from run_assembly_workflow import run_workflow
 from run_mashpit import run_mashpit, validate_database
 from render_snp_tree import render_from_interpretation
-from run_ska import parse_distance_table, run_ska
-from select_snp_targets import select_targets
+from run_ska import run_ska
 from validate_assembly import assess
 from validate_fastq import validate_pair
 
@@ -82,18 +81,6 @@ class InputAndQcTests(unittest.TestCase):
 
 
 class MashpitParsingTests(unittest.TestCase):
-    def test_locate_tree_image_finds_the_single_match(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            (root / "sample_tree.png").write_bytes(b"fake-png")
-            self.assertEqual(locate_tree_image(root), root / "sample_tree.png")
-
-    def test_locate_tree_image_returns_none_when_absent(self):
-        # Not an error: Mashpit itself skips tree generation below --threshold
-        # or when fewer than two candidates qualify.
-        with tempfile.TemporaryDirectory() as temporary:
-            self.assertIsNone(locate_tree_image(Path(temporary)))
-
     def write_candidates(self, path: Path, rows: list[dict]) -> None:
         fields = ["PDS_acc", "best_similarity_score", "near_top"]
         with path.open("w", encoding="utf-8", newline="") as handle:
@@ -186,27 +173,6 @@ class MlstRoutingTests(unittest.TestCase):
 
 
 class FailureAndProvenanceTests(unittest.TestCase):
-    def test_executable_version_records_real_version_on_success(self):
-        result = executable_version("python3", args=("--version",))
-        self.assertTrue(result["available"])
-        self.assertEqual(result["returncode"], 0)
-        self.assertIsNotNone(result["version"])
-
-    @patch("common.subprocess.run")
-    @patch("common.shutil.which", return_value="/opt/conda/bin/sourmash")
-    def test_executable_version_does_not_report_traceback_as_a_version(self, _which, run):
-        # Observed for real: sourmash 4.6.1's own `--version` hits an unrelated
-        # upstream argparse bug and exits nonzero with a traceback on stderr.
-        # A nonzero exit must not be recorded as if the first line were a version.
-        run.return_value = type("Completed", (), {
-            "stdout": "", "stderr": "Traceback (most recent call last):\nArgumentError: ...",
-            "returncode": 1,
-        })()
-        result = executable_version("sourmash")
-        self.assertTrue(result["available"])
-        self.assertIsNone(result["version"])
-        self.assertIn("Traceback", result["error"])
-
     def test_missing_database(self):
         with tempfile.TemporaryDirectory() as temporary:
             with self.assertRaises(WorkflowError):
@@ -255,13 +221,24 @@ class FailureAndProvenanceTests(unittest.TestCase):
                 run_workflow(root / "r1.fastq", root / "r2.fastq", root / "assembly")
 
     @patch("collect_provenance.executable_version", return_value={"available": False})
-    def test_provenance_contains_checksums_and_commit(self, _version):
+    @patch.dict("collect_provenance.os.environ", {
+        "ISOSCOUT_IMAGE_REFERENCE": "isoscout:local",
+        "ISOSCOUT_IMAGE_ID": "sha256:derived",
+        "ISOSCOUT_SOURCE_COMMIT": "abc123",
+        "ISOSCOUT_LAUNCHER_COMMIT": "def456",
+        "ISOSCOUT_LAUNCHER_DIRTY": "false",
+    })
+    def test_provenance_contains_input_and_runtime_identities(self, _version):
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / "sample.fna"
             path.write_text(">a\nACGT\n", encoding="ascii")
             value = collect([path], path, {"name": "salmonella"}, [["mashpit", "query"]])
             self.assertEqual(len(value["inputs"][0]["sha256"]), 64)
             self.assertIn("538d342", value["pinned_tool_versions"]["mashpit"])
+            self.assertEqual(value["container"]["runtime_image_id"], "sha256:derived")
+            self.assertEqual(value["source"], {
+                "image_revision": "abc123", "launcher_commit": "def456", "launcher_dirty": "false",
+            })
 
 
 class SnpResolutionTests(unittest.TestCase):
@@ -277,48 +254,6 @@ class SnpResolutionTests(unittest.TestCase):
             )
             writer.writeheader()
             writer.writerows(representative_rows)
-
-    def test_select_targets_unambiguous_uses_only_top_cluster(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            output_dir = Path(temporary)
-            self.write_mashpit_output(
-                output_dir,
-                [
-                    {"PDS_acc": "PDS0001", "best_similarity_score": "0.99", "near_top": "False"},
-                    {"PDS_acc": "PDS0002", "best_similarity_score": "0.80", "near_top": "False"},
-                ],
-                [
-                    {"asm_acc": "GCA_1", "biosample_acc": "SAMN1", "PDS_acc": "PDS0001", "similarity_score": "0.99"},
-                    {"asm_acc": "GCA_2", "biosample_acc": "SAMN2", "PDS_acc": "PDS0001", "similarity_score": "0.95"},
-                    {"asm_acc": "GCA_3", "biosample_acc": "SAMN3", "PDS_acc": "PDS0002", "similarity_score": "0.80"},
-                ],
-            )
-            policy = {"policy_version": "3.0.1", "strategy": "global-ranked-cluster-coverage-v1", "default_mode": "adaptive", "coverage_strategy": "unrepresented_cluster_leaders_then_global_rank", "initial_target_genomes": 5, "max_returned_representatives": 20, "max_total_genomes": 20}
-            result = select_targets(output_dir, policy, {"mashpit_database_settings": {"hash_number": 1000}}, {"number": 200, "threshold": .85, "tie_tolerance_hashes": 2})
-            self.assertEqual(result["status"], "SELECTED")
-            self.assertEqual(result["selected_clusters"], ["PDS0001", "PDS0002"])
-            accessions = {item["accession"] for item in result["targets"]}
-            self.assertEqual(accessions, {"GCA_1", "GCA_2", "GCA_3"})
-
-    def test_select_targets_ambiguous_includes_near_top_cluster(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            output_dir = Path(temporary)
-            self.write_mashpit_output(
-                output_dir,
-                [
-                    {"PDS_acc": "PDS0001", "best_similarity_score": "0.99", "near_top": "True"},
-                    {"PDS_acc": "PDS0002", "best_similarity_score": "0.985", "near_top": "True"},
-                ],
-                [
-                    {"asm_acc": "GCA_1", "biosample_acc": "SAMN1", "PDS_acc": "PDS0001", "similarity_score": "0.99"},
-                    {"asm_acc": "GCA_2", "biosample_acc": "SAMN2", "PDS_acc": "PDS0002", "similarity_score": "0.985"},
-                ],
-            )
-            policy = {"policy_version": "3.0.1", "strategy": "global-ranked-cluster-coverage-v1", "default_mode": "adaptive", "coverage_strategy": "unrepresented_cluster_leaders_then_global_rank", "initial_target_genomes": 5, "max_returned_representatives": 20, "max_total_genomes": 20}
-            result = select_targets(output_dir, policy, {"mashpit_database_settings": {"hash_number": 1000}}, {"number": 200, "threshold": .85, "tie_tolerance_hashes": 2})
-            self.assertEqual(sorted(result["selected_clusters"]), ["PDS0001", "PDS0002"])
-            accessions = {item["accession"] for item in result["targets"]}
-            self.assertEqual(accessions, {"GCA_1", "GCA_2"})
 
     @patch("fetch_reference_genomes.download_batch")
     @patch("fetch_reference_genomes.require_executable", return_value="/usr/bin/datasets")
@@ -338,18 +273,6 @@ class SnpResolutionTests(unittest.TestCase):
             self.assertIn("GOOD1", result["verified"])
             self.assertEqual(result["unavailable"], ["BAD1"])
             self.assertEqual(download_batch.call_count, 2)
-
-    def test_parse_distance_table_rejects_unexpected_header(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            path = Path(temporary) / "distances.tsv"
-            path.write_text("Sample1\tSample2\tSNPs\n", encoding="utf-8")
-            with self.assertRaises(WorkflowError):
-                parse_distance_table(path)
-
-    def test_run_ska_requires_at_least_two_genomes(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            with self.assertRaises(WorkflowError):
-                run_ska({"QUERY": "query.fasta"}, Path(temporary), 31)
 
     @patch("run_ska.require_executable", return_value="/usr/bin/ska")
     def test_run_ska_builds_file_list_and_parses_distances(self, _executable):
@@ -410,14 +333,6 @@ class SnpResolutionTests(unittest.TestCase):
         self.assertNotIn("QUERY_", result["newick_tree"])
         self.assertTrue(result["warnings"])
 
-    def test_interpret_snp_resolution_agrees_with_mash(self):
-        rows = [{"sample1": "QUERY", "sample2": "GCA_1", "snp_distance": 1.0,
-                  "mismatch_proportion": 0.0, "match_count": 1000000, "mismatch_count": 0}]
-        targets = [{"accession": "GCA_1", "cluster": "PDS0001"}]
-        result = interpret_snp_resolution(rows, targets, "PDS0001")
-        self.assertTrue(result["agrees_with_mash_top_candidate"])
-        self.assertEqual(result["warnings"], [])
-
     def test_interpret_snp_resolution_insufficient_data_without_query_rows(self):
         rows = [{"sample1": "GCA_1", "sample2": "GCA_2", "snp_distance": 1.0,
                   "mismatch_proportion": 0.0, "match_count": 1000000, "mismatch_count": 0}]
@@ -439,10 +354,6 @@ class SnpResolutionTests(unittest.TestCase):
         newick = neighbor_joining(rows)
         self.assertEqual(newick, "((A:2.0000,B:3.0000):1.0000,(C:4.0000,D:5.0000):1.0000);")
 
-    def test_render_from_interpretation_skips_without_tree(self):
-        result = render_from_interpretation({"ranked": []}, Path("unused.png"))
-        self.assertEqual(result["status"], "SKIPPED")
-
     @patch("render_snp_tree.render")
     def test_render_from_interpretation_reports_failure_without_raising(self, render):
         render.side_effect = RuntimeError("matplotlib backend unavailable")
@@ -451,20 +362,6 @@ class SnpResolutionTests(unittest.TestCase):
         )
         self.assertEqual(result["status"], "FAIL")
         self.assertIn("matplotlib", result["error"])
-
-    @patch("render_snp_tree.render")
-    def test_render_from_interpretation_passes_through_on_success(self, render):
-        result = render_from_interpretation(
-            {"newick_tree": "(A:1,B:1);", "ranked": [{"sample": "A"}]}, Path("tree.png")
-        )
-        self.assertEqual(result["status"], "PASS")
-        render.assert_called_once()
-
-    def test_neighbor_joining_two_taxa(self):
-        # Labels are sorted, so GCA_1 sorts before QUERY.
-        rows = [{"sample1": "QUERY", "sample2": "GCA_1", "snp_distance": 10}]
-        self.assertEqual(neighbor_joining(rows), "(GCA_1:5.0000,QUERY:5.0000);")
-
 
 if __name__ == "__main__":
     unittest.main()

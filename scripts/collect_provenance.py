@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -34,8 +35,15 @@ def collect(
         "refinement_policy_sha256": sha256_file(refinement_policy_path),
         "refinement_policy_path": str(refinement_policy_path.resolve()),
         "container": {
-            "image": workflow["container_image"],
-            "digest": workflow["container_digest"],
+            "requested_image": os.environ.get("ISOSCOUT_IMAGE_REFERENCE"),
+            "runtime_image_id": os.environ.get("ISOSCOUT_IMAGE_ID"),
+            "base_image": workflow["base_container_image"],
+            "base_digest": workflow["base_container_digest"],
+        },
+        "source": {
+            "image_revision": os.environ.get("ISOSCOUT_SOURCE_COMMIT"),
+            "launcher_commit": os.environ.get("ISOSCOUT_LAUNCHER_COMMIT"),
+            "launcher_dirty": os.environ.get("ISOSCOUT_LAUNCHER_DIRTY"),
         },
         "pinned_tool_versions": workflow["tools"],
         "observed_tool_versions": {

@@ -5,7 +5,9 @@ Run analyses in the pinned container built from `container/Dockerfile`. Mashpit 
 Build the image from the repository root:
 
 ```bash
-docker build --platform linux/amd64 -f container/Dockerfile -t isoscout:local .
+docker build --platform linux/amd64 \
+  --build-arg VCS_REF="$(git rev-parse HEAD)" \
+  -f container/Dockerfile -t isoscout:local .
 ```
 
 The recipe extends a published baseline pinned by digest, preserving its working
@@ -13,21 +15,17 @@ Mashpit/Python environment. It adds minimap2, paftools, k8 and MUMmer in a separ
 environment using `container/alignment-linux-64.lock`, which fixes every native
 package build and checksum. `container/environment.yml` documents the original
 baseline dependencies; the current recipe does not re-solve that environment.
-The image includes this checkout's code. Retain the built image ID and checkout
-commit or source snapshot; the baseline digest is not the derived image identity.
+The image includes this checkout's code. The host launcher records the built
+image ID and checkout commit; the baseline digest is not the derived image identity.
 
 `--platform linux/amd64` is required on Apple Silicon (`quast=5.3.0` has no `linux/arm64` build for the pinned Python 3.11); it runs fine under emulation there.
 
 Run an assembly with a known organism:
 
 ```bash
-docker run --rm --platform linux/amd64 \
-  --volume "/absolute/path/to/data:/data:ro" \
-  --volume "$HOME/.isoscout/databases:/databases:ro" \
-  --volume "/absolute/path/to/results:/results" \
-  isoscout:local \
-  /data/sample.fasta --organism salmonella \
-  --database-root /databases --output /results/sample-screen
+python3 scripts/launch_isoscout.py /absolute/path/to/sample.fasta \
+  --organism salmonella \
+  --output /absolute/path/to/results/sample-screen
 ```
 
 Omit `--organism` to use local MLST routing. The output directory must not already exist.
@@ -124,11 +122,11 @@ shasum -a 256 -c checksums.sha256.txt
 
 Only the selected organism database is required for a run — each is independent, so download just the one(s) you need. Local `mlst` 2.35.0 and its bundled PubMLST schemes are installed in the image; no scheme download or sequence upload occurs at runtime.
 
-The `container_digest` in `config/workflow.json` still identifies the published
-baseline image. It does not identify the code in a bind-mounted checkout. For
-exact replay, retain that checkout commit or source snapshot, the database
-archive/checksums, downloaded reference assemblies, and the run output. Update
-the workflow image identity when publishing a derived image.
+The `base_container_digest` in `config/workflow.json` identifies only the
+published image used as the Dockerfile base. `provenance.json` separately records
+the requested runtime image, its actual local image ID, and source commit when
+the host launcher is used. For exact replay, also retain the database package,
+downloaded reference assemblies, and complete run output.
 
 ## Assembly-refinement tools
 

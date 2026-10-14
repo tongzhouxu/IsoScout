@@ -4,7 +4,9 @@ All notable changes to this project are documented here. Format loosely follows 
 
 ## [Unreleased]
 
-- Workflow 1.8.0 / skill 1.4.0 / refinement policy 2.0.0 replaces flat member round-robin with qualifying-SNP-led focused expansion and rotating reserved alternative capacity. It tracks per-cluster new qualifying coverage, blocks premature stability, separates isolated comparability failures from unresolved clusters, and records allocation and uncertainty in reports/provenance. Initial selection, Mashpit return limits, and default resource limits remain unchanged. Real pilot and independent confirmation remain unrun here.
+- Workflow 1.13.0 / skill 1.4.0 adds target-relative common-region verification and bounded candidate challenges to the focused-expansion workflow. It tracks per-cluster qualifying coverage, preserves unresolved and region-sensitive alternatives, and separates cluster support from nearest-genome resolution. Initial selection, Mashpit return limits, and default resource limits remain unchanged. Biological validation remains outstanding.
+
+- Added a host-side Docker launcher that resolves mounts and records the actual image ID, source commit, and dirty state. Simplified the agent entrypoint, corrected unknown-organism routing guidance, and made the Docker-based software suite a required release gate.
 
 - Removed research comparison scripts, historical policy copies, and study-specific fixtures from the skill repository. The study will be developed separately for the paper; operational regression tests and software verification remain here.
 
@@ -18,7 +20,7 @@ All notable changes to this project are documented here. Format loosely follows 
 
 - Raised the refinement metadata download ceiling from 512 MiB to 1 GiB (policy 1.0.1): the published Salmonella release's available metadata TSV is 786,821,557 bytes and would otherwise be rejected. Confirmed exact-release metadata and membership URLs for all five published databases on 2026-10-02.
 
-- Audited all 90 tests and consolidated four redundant cases into stronger existing checks, retaining their distinct assertions. Removed repeated assertions and unused test imports. All 86 remaining tests pass in the pinned-tool container; measured in-process production execution coverage is unchanged.
+- Consolidated repetitive defensive tests while retaining cases for each workflow decision boundary and the real pinned-tool integration checks.
 
 - Workflow 1.5.0 adds opt-in exact-release cluster-member expansion and bounded refinement feedback with per-round audits, explicit incomplete coverage, and preservation of successful comparisons after later failures. Cleaned paired reads now feed SKA2 directly. Comparability gates exclude low-overlap rankings; tied minima remain ambiguous and zero SNPs no longer imply identity. Added an offline real-SKA2 integration test using seeded random DNA. Biological validation remains required.
 

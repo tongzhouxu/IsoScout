@@ -6,7 +6,7 @@ from unittest.mock import patch
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT/"scripts"))
-from run_minimap import run_minimap,parse_calls,prepare_paf
+from run_minimap import run_minimap,parse_calls
 from interpret_assembly_comparison import interpret
 from common import WorkflowError,load_json
 

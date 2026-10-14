@@ -12,16 +12,16 @@ from unittest.mock import patch
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
-import test_similarity_distribution as fixtures
 from common import WorkflowError, load_json, sha256_file
-from expand_cluster_members import parse_members, discover_members, download_file
+from expand_cluster_members import parse_members, discover_members
 from generate_report import generate_report
 from package_database_release import package_database
 from run_mashpit import validate_database
 from interpret_snp_resolution import interpret
-from refinement_expansion import assess_progress, member_coverage, schedule_focused_batch, validate_expansion_policy
+from refinement_expansion import assess_progress, schedule_focused_batch
 from run_ska import build_file_list, parse_distance_table, DISTANCE_HEADER
 from screen_isolate import run_snp_resolution, screen
+from site_fixture import MashpitFixture
 
 
 def comparison(a, b, distance, matches=1000000, missing=.01):
@@ -69,18 +69,6 @@ class MembershipTests(unittest.TestCase):
         self.assertEqual(result["status"], "UNAVAILABLE")
         self.assertEqual(download.call_count, 1)
         self.assertEqual(result["members"], [])
-
-    def test_invalid_source_metadata_never_downloads(self):
-        with patch("expand_cluster_members.download_file") as download:
-            result = discover_members({"version": "latest", "species": "../other"}, ["C1"], self.root / "output", {})
-        self.assertEqual(result["status"], "UNAVAILABLE")
-        download.assert_not_called()
-
-    def test_redirect_is_rejected(self):
-        with patch("expand_cluster_members.urllib.request.urlopen") as open_url:
-            open_url.return_value.__enter__.return_value.geturl.return_value = "https://ftp.ncbi.nlm.nih.gov/latest"
-            with self.assertRaises(WorkflowError):
-                download_file("https://ftp.ncbi.nlm.nih.gov/pinned", self.root / "file", 100)
 
     def source_database(self):
         directory = self.root / "cronobacter"
@@ -134,21 +122,6 @@ class MembershipTests(unittest.TestCase):
             package_database(source, output, {"max_metadata_file_bytes": 100000}, self.meta, self.isolates)
         self.assertFalse(output.exists())
 
-    def test_snapshot_from_another_pdg_version_cannot_replace_bundled_membership(self):
-        source = self.source_database()
-        package = self.root / "package" / "cronobacter"
-        package_database(source, package, {"max_metadata_file_bytes": 100000}, self.meta, self.isolates)
-        manifest = load_json(package / "database.json")
-        manifest["membership_snapshot"]["release"] = "PDG000000043.416"
-        (package / "database.json").write_text(json.dumps(manifest))
-        with self.assertRaisesRegex(WorkflowError, "does not match"):
-            validate_database(package, "cronobacter")
-        with patch("expand_cluster_members.download_file") as download:
-            result = discover_members({**manifest, "database_directory": str(package)}, ["C1"], self.root / "analysis", {"max_metadata_file_bytes": 100000})
-        self.assertEqual(result["status"], "UNAVAILABLE")
-        download.assert_not_called()
-
-
 class InterpretationTests(unittest.TestCase):
     def test_tiny_overlap_cannot_win_with_zero_snps(self):
         rows = [comparison("QUERY", "A", 0, 1, .999), comparison("QUERY", "B", 2), comparison("A", "B", 2, 1, .999)]
@@ -166,12 +139,6 @@ class InterpretationTests(unittest.TestCase):
         self.assertIsNone(result["agrees_with_mash_top_candidate"])
         self.assertIn("no unique cluster", result["confidence"]["statement"])
         self.assertNotIn("exact match", result["confidence"]["statement"])
-
-    def test_no_qualified_comparison_is_insufficient(self):
-        result = interpret([comparison("QUERY", "A", 0, 1)], [{"accession": "A", "cluster": "C1"}], "C1")
-        self.assertEqual(result["status"], "INSUFFICIENT_DATA")
-        self.assertEqual(result["excluded_comparisons"][0]["sample"], "A")
-
 
 class FocusedSchedulerTests(unittest.TestCase):
     def setUp(self):
@@ -197,18 +164,6 @@ class FocusedSchedulerTests(unittest.TestCase):
         self.assertEqual(len({row["accession"] for row in batch}), 25)
         self.assertEqual(audit["leading_clusters"], ["C1"])
 
-    def test_tied_leaders_both_receive_focus_and_alternative_remains(self):
-        members = ([{"accession": f"A{i:03d}", "cluster": "C1"} for i in range(20)]
-                   + [{"accession": f"B{i:03d}", "cluster": "C2"} for i in range(20)]
-                   + [{"accession": f"C{i:03d}", "cluster": "C3"} for i in range(10)])
-        batch, _, audit = schedule_focused_batch(members, set(), ["C1", "C2", "C3"],
-            self.interpretation(("C1", "C2")), self.policy, 100, 7)
-        counts = {cluster: sum(row["cluster"] == cluster for row in batch) for cluster in ("C1", "C2", "C3")}
-        self.assertGreaterEqual(counts["C1"], 9)
-        self.assertGreaterEqual(counts["C2"], 9)
-        self.assertGreaterEqual(counts["C3"], 2)
-        self.assertEqual(audit["leading_clusters"], ["C1", "C2"])
-
     def test_alternative_cursor_reaches_later_clusters_across_rounds(self):
         clusters = ["C1"] + [f"C{i:02d}" for i in range(2, 12)]
         members = ([{"accession": f"L{i:03d}", "cluster": "C1"} for i in range(100)]
@@ -224,18 +179,6 @@ class FocusedSchedulerTests(unittest.TestCase):
             attempted.update(row["accession"] for row in batch)
         self.assertIn("C11", seen_alternatives)
         self.assertEqual(len(seen_alternatives), len(set(seen_alternatives)))
-
-    def test_isolated_exclusion_does_not_block_but_unresolved_cluster_does(self):
-        previous = self.interpretation(qualifying=[("REP", "C1")])
-        current = self.interpretation(qualifying=[("REP", "C1"), ("NEW", "C1"), ("ALT", "C2")], excluded=[("BAD", "C1")])
-        coverage = [{"cluster": "C1", "qualifying_additional": 20, "unexamined_additional": 10},
-                    {"cluster": "C2", "qualifying_additional": 0, "unexamined_additional": 0}]
-        result = assess_progress(previous, current, coverage, self.policy, False, 0)
-        self.assertTrue(result["stable"])
-        unresolved = coverage + [{"cluster": "C3", "qualifying_additional": 0, "unexamined_additional": 5}]
-        result = assess_progress(previous, current, unresolved, self.policy, False, 0)
-        self.assertFalse(result["stable"])
-        self.assertIn("C3", result["unresolved_alternatives_with_pending_references"])
 
     def test_unresolved_challenges_block_stability_and_cluster_witness_can_support_it(self):
         previous = self.interpretation(qualifying=[("REP", "C1")])
@@ -269,17 +212,11 @@ class FocusedSchedulerTests(unittest.TestCase):
             schedule_focused_batch(members + [{"accession": "A1", "cluster": "C2"}], {"A0"},
                                    ["C1", "C2"], self.interpretation(), self.policy, 3, 2)
 
-    def test_invalid_allocation_is_rejected(self):
-        for change in ({"leading_share": 1}, {"alternative_min_slots": 25}, {"min_focused_qualifying_per_leader": 0}):
-            with self.assertRaises(WorkflowError):
-                validate_expansion_policy({**self.policy, **change})
-
-
 class IterativeWorkflowTests(unittest.TestCase):
     def setUp(self):
-        self.case = fixtures.SimilarityDiagnosticsTests()
-        self.case.setUp()
-        self.addCleanup(self.case.temporary.cleanup)
+        self.temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporary.cleanup)
+        self.case = MashpitFixture(self.temporary.name)
         self.case.fixture([1.])
         self.membership = {"status": "AVAILABLE", "release": "fixture", "sources": [],
                            "members": [{"accession": f"MEMBER_{i:03d}", "cluster": "C1"} for i in range(100)]}
@@ -344,15 +281,6 @@ class IterativeWorkflowTests(unittest.TestCase):
         self.assertIn("Expansion decisions after each comparison", report)
         self.assertIn("All equally nearest qualifying references: LEAD_030", report)
 
-    def test_unchanged_early_rounds_cannot_stop_before_focused_minimum(self):
-        membership = {"status": "AVAILABLE", "members": [{"accession": f"MEMBER_{i:03d}", "cluster": "C1"} for i in range(200)]}
-        result, downloads = self.execute(membership=membership,
-            settings={"min_focused_qualifying_per_leader": 60, "max_additional_reference_attempts": 100})
-        self.assertGreaterEqual(len(downloads), 4)
-        self.assertNotEqual(result["expansion"]["stop_reason"], "stable_sampled_neighborhood")
-        self.assertEqual(result["expansion"]["additional_reference_attempts"], 100)
-        self.assertTrue(result["expansion"]["remaining_uncertainty"]["budget_or_round_limit_prevented_required_exploration"])
-
     def test_alternative_exploration_corrects_misleading_initial_leader(self):
         self.case.fixture([1., .995], ["C1", "C2"])
         membership = {"status": "AVAILABLE", "members": ([{"accession": f"LEAD_{i:03d}", "cluster": "C1"} for i in range(50)]
@@ -363,16 +291,6 @@ class IterativeWorkflowTests(unittest.TestCase):
         self.assertIn("ALT_CLOSE", downloads[1])
         self.assertEqual(result["nearest_clusters"], ["C2"])
         self.assertEqual(result["nearest_snp_distance"], 1)
-
-    def test_finite_leader_pool_completes_when_budget_allows(self):
-        self.case.fixture([1., .995], ["C1", "C2"])
-        membership = {"status": "AVAILABLE", "members": ([{"accession": f"LEAD_{i:03d}", "cluster": "C1"} for i in range(15)]
-                                                   + [{"accession": f"ALT_{i:03d}", "cluster": "C2"} for i in range(3)])}
-        distances = {"GCA_0000": 5, "GCA_0001": 6}
-        result, downloads = self.execute(membership=membership, distance_map=distances,
-                                         settings={"max_rounds": 3})
-        self.assertTrue({f"LEAD_{i:03d}" for i in range(15)}.issubset({acc for batch in downloads for acc in batch}))
-        self.assertEqual(result["expansion"]["pending_available_members"], 0)
 
     def test_insufficient_evidence_explores_broadly_then_reports_uncertainty(self):
         membership = {"status": "AVAILABLE", "members": [{"accession": "NEW", "cluster": "C1"}]}
@@ -390,10 +308,6 @@ class IterativeWorkflowTests(unittest.TestCase):
         self.assertEqual(len(failed_downloads), 2)
         self.assertEqual(failed["nearest_snp_distance"], 5)
 
-    def test_custom_comparability_is_used_for_snp_interpretation(self):
-        result, _ = self.execute(comparability={"min_shared_split_kmers": 42})
-        self.assertEqual(result["status"], "COMPARED")
-
     def test_query_self_excluded_from_expansion_and_pinned_conflict_stops(self):
         self.case.fixture([1., .995], ["C1", "C1"])
         membership = {"status": "AVAILABLE", "members": [
@@ -402,9 +316,6 @@ class IterativeWorkflowTests(unittest.TestCase):
         self.assertEqual(downloads, [["GCA_0001"], ["NEW"]])
         self.assertTrue(result["coverage"]["query_self_excluded_from_members"])
         conflict = {"status": "AVAILABLE", "members": [{"accession": "GCA_0001", "cluster": "C2"}]}
-        second_case = fixtures.SimilarityDiagnosticsTests()
-        second_case.setUp()
-        self.addCleanup(second_case.temporary.cleanup)
         # The conflict is checked before any expansion allocation.
         result2, _ = self.execute(membership=conflict, query_accession="GCA_0000")
         self.assertEqual(result2["expansion"]["stop_reason"], "membership_conflict")

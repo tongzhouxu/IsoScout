@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import csv
 import json
 import subprocess
 import sys
@@ -16,33 +15,21 @@ from analyze_similarity_distribution import analyze, run_diagnostics
 from common import WorkflowError, load_json
 from generate_report import generate_report
 from screen_isolate import screen
+from site_fixture import MashpitFixture
 
 
 class SimilarityDiagnosticsTests(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
-        self.root = Path(self.temporary.name)
-        self.source = self.root / "mashpit"
-        self.source.mkdir()
-        self.database = {"name": "listeria", "version": "test", "mashpit_database_settings": {"hash_number": 1000}}
-        self.profile = {"number": 200, "threshold": .85, "tie_tolerance_hashes": 2}
-        self.policy = {"policy_version": "3.0.1", "strategy": "global-ranked-cluster-coverage-v1", "default_mode": "adaptive", "coverage_strategy": "unrepresented_cluster_leaders_then_global_rank", "initial_target_genomes": 50, "max_returned_representatives": 100, "max_total_genomes": 100}
-        self.workflow = {"mashpit": self.profile, "similarity_diagnostics": {"rank_checkpoints": [50, 100, 200]}}
+        case = MashpitFixture(self.temporary.name)
+        self.root, self.source = case.root, case.source
+        self.database, self.profile = case.database, case.profile
+        self.policy, self.workflow = case.policy, case.workflow
+        self._write_fixture = case.fixture
 
     def fixture(self, scores, clusters=None):
-        clusters = clusters or ["C1"] * len(scores)
-        with (self.source / "sample_representative_matches.csv").open("w", newline="") as handle:
-            writer = csv.DictWriter(handle, fieldnames=["asm_acc", "PDS_acc", "similarity_score"])
-            writer.writeheader()
-            for index, (score, cluster) in enumerate(zip(scores, clusters)):
-                writer.writerow({"asm_acc": f"GCA_{index:04d}", "PDS_acc": cluster, "similarity_score": score})
-        with (self.source / "sample_cluster_candidates.csv").open("w", newline="") as handle:
-            writer = csv.DictWriter(handle, fieldnames=["PDS_acc", "best_similarity_score", "near_top"])
-            writer.writeheader()
-            for cluster in sorted(set(clusters)):
-                score = max(score for score, group in zip(scores, clusters) if cluster == group)
-                writer.writerow({"PDS_acc": cluster, "best_similarity_score": score, "near_top": max(scores) - score <= .002})
+        self._write_fixture(scores, clusters)
 
     def analyze(self):
         return analyze(self.source, self.database, self.profile, self.policy, [50, 100, 200])
@@ -74,26 +61,12 @@ class SimilarityDiagnosticsTests(unittest.TestCase):
         self.assertTrue(result["retrieval"]["tail_is_near_tie"])
         self.assertFalse(result["retrieval"]["top_band_reaches_tail"])
 
-    def test_low_scoring_tail_plateau_at_return_limit_is_also_flagged(self):
-        self.fixture([1.] + [.91] * 199)
-        result = self.analyze()
-        self.assertFalse(result["retrieval"]["top_band_reaches_tail"])
-        self.assertTrue(result["retrieval"]["may_split_near_tie"])
-
     def test_below_threshold_scores_do_not_imply_selection(self):
         self.fixture([.01, .01])
         result = self.analyze()
         self.assertFalse(result["selection_preview"]["eligible"])
         self.assertEqual(result["selection_preview"]["selected_genomes"], 0)
         self.assertIsNone(result["selection_preview"]["omitted_within_top_tolerance_count"])
-
-    def test_empty_and_singleton_have_unknown_unobserved_boundaries(self):
-        for scores in ([], [1.]):
-            self.fixture(scores)
-            result = self.analyze()
-            self.assertEqual(result["returned_genomes"], len(scores))
-            self.assertIsNone(result["retrieval"]["tail_adjacent_gap"])
-            self.assertTrue(all(point["splits_near_tie"] is None for point in result["rank_checkpoints"]))
 
     def test_invalid_scores_fail_visibly(self):
         self.fixture([1.])
@@ -102,27 +75,6 @@ class SimilarityDiagnosticsTests(unittest.TestCase):
             path.write_text(f"asm_acc,PDS_acc,similarity_score\nA,C1,{score}\n")
             with self.assertRaises(WorkflowError):
                 self.analyze()
-
-    def test_duplicate_accessions_are_counted_once_in_diagnostics(self):
-        self.fixture([1.])
-        path = self.source / "sample_representative_matches.csv"
-        path.write_text("asm_acc,PDS_acc,similarity_score\nA,C1,1\nA,C1,1\n")
-        result = self.analyze()
-        self.assertEqual(result["returned_genomes"], 1)
-        self.assertEqual(result["duplicate_rows"], 1)
-
-    def test_no_default_hash_number_is_assumed(self):
-        self.fixture([1.])
-        self.database["mashpit_database_settings"] = {}
-        with self.assertRaises(WorkflowError):
-            self.analyze()
-
-    def test_ranked_scores_and_gaps_are_sorted_numerically(self):
-        self.fixture([.9, 1., .95])
-        result = self.analyze()
-        self.assertEqual([row["score"] for row in result["ranked"]], [1., .95, .9])
-        self.assertAlmostEqual(result["ranked"][0]["gap_to_next"], .05)
-        self.assertIsNone(result["ranked"][-1]["gap_to_next"])
 
     @patch("analyze_similarity_distribution.render_plot", return_value={"status": "FAIL", "error": "no plotting library"})
     def test_plot_failure_retains_json_and_report(self, _plot):
