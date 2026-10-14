@@ -97,6 +97,7 @@ def build_command(
     launcher_commit, launcher_dirty = git_identity(root)
     command = [
         "docker", "run", "--rm", "--platform", "linux/amd64",
+        "--user", f"{os.getuid()}:{os.getgid()}",
         "--env", f"ISOSCOUT_IMAGE_REFERENCE={args.image}",
         "--env", f"ISOSCOUT_IMAGE_ID={runtime_image_id}",
         "--env", f"ISOSCOUT_SOURCE_COMMIT={image_revision}",
