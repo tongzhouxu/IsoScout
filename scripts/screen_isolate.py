@@ -21,6 +21,7 @@ from inspect_input import inspect
 from interpret_snp_resolution import interpret as interpret_snp_resolution
 from parse_mashpit_results import interpret, load_candidates, locate_candidate_file, locate_tree_image
 from render_snp_tree import render_from_interpretation
+from rep_designations import annotate as annotate_rep_designations, summary_line as rep_summary_line
 from run_assembly_workflow import run_workflow
 from run_mashpit import run_mashpit
 from run_ska import run_ska
@@ -91,6 +92,9 @@ def summary_text(result: dict[str, Any]) -> str:
         uncertainty = (snp.get("expansion") or {}).get("remaining_uncertainty") or {}
         if uncertainty.get("budget_or_round_limit_prevented_required_exploration"):
             lines.append("Focused or alternative exploration remained incomplete at the resource or round limit.")
+    rep = result.get("rep_designations")
+    if rep:
+        lines.append(rep_summary_line(rep))
     if result.get("stop_reason"):
         lines.append(f"Analysis stopped: {result['stop_reason']}")
     warnings = result.get("warnings", [])
@@ -536,6 +540,10 @@ def screen(
             except (WorkflowError, OSError, ValueError) as error:
                 result["snp_resolution"] = {"status": "ERROR", "error": str(error)}
                 result["warnings"].append(f"SNP resolution failed: {error}")
+        result["rep_designations"] = annotate_rep_designations(result, database_metadata)
+        write_json(output_dir / "rep_designations.json", result["rep_designations"])
+        if result["rep_designations"]["status"] == "UNREADABLE":
+            result["warnings"].append("REP designations could not be read: " + result["rep_designations"]["error"])
         result["warnings"] = list(dict.fromkeys(result["warnings"]))
         result["status"] = "COMPLETED_WITH_WARNINGS" if result["warnings"] else "COMPLETED"
     except (WorkflowError, OSError, ValueError) as error:

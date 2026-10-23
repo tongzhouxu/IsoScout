@@ -162,13 +162,43 @@ and cluster-membership tables so expansion can work after NCBI removes that
 release. Existing packages continue to use exact-release retrieval while it is
 available. Candidate assemblies must be supplied locally or downloaded separately.
 
+### CDC REP designations
+
+The [databases-rep-2026-10](https://github.com/tongzhouxu/IsoScout/releases/tag/databases-rep-2026-10)
+release adds a `REP_CLUSTER` table to each Mashpit `.db` (Salmonella
+`PDG000000002.4263`, E. coli/Shigella `PDG000000004.6366`, Campylobacter
+`PDG000000003.2927`). Columns: `PDS_acc` (primary key), `rep_designation`,
+`organism`, `anchor_pnusa`, `anchor_pdt`, `evidence_status`, `source_url`. The
+release's `rep_cluster_annotations.json` lists the same annotations. Install
+these packages as for `databases-v2`, using the `databases-rep-2026-10` tag.
+
+When the table exists, the screen reads it directly; you no longer need to
+query it with `sqlite3`. `result.json` gains a `rep_designations` block, also
+saved as `rep_designations.json`:
+
+- `final_clusters` — the final called cluster, which is the SNP-resolved
+  cluster or every unresolved SNP-supported cluster when refinement ran, and
+  Mashpit's top candidate otherwise (`final_call_basis` records which).
+- `candidate_clusters` — Mashpit's best and displayed alternative clusters.
+- Each entry has `status` `LABELLED` (with `rep_designation`, `source_url`,
+  anchors and `evidence_status`) or `NO_LABEL`.
+- `status` is `AVAILABLE`, `TABLE_ABSENT` or `UNREADABLE`.
+
+Matching uses the exact PDS accession, including its version. A missing table
+or row means *no REP label in this database*, not *not a REP strain*. A REP
+label means CDC has linked the called NCBI SNP cluster to a REP strain; it does
+not confirm that the isolate belongs to the outbreak strain. `report.md` adds a
+"CDC REP designations" section saying this. With `databases-v2` packages, the
+screen's status, warnings and calls are unchanged; the block only records that
+the table is absent.
+
 ### Reading the result
 
 Three primary files land in the output directory, alongside stage-specific
 audits and logs:
 
 - **`report.md`** — a plain-language summary for a non-technical reader: organism determination, read QC when the input was raw reads, Mashpit's candidate clusters and scores plus its own Mash-based tree, and (with `--snp-resolve`) the target-to-candidate SNP table, alignment coverage and distance plot (an SNP tree is available only on the legacy SKA path).
-- **`result.json`** — the structured, authoritative result. Use `status`, `stop_reason`, and `user_summary`.
+- **`result.json`** — the structured, authoritative result. Use `status`, `stop_reason`, and `user_summary`; `rep_designations` holds any CDC REP labels.
 - **`provenance.json`** — checksums, pinned tool versions, and every command actually run, for reproducibility.
 
 ### Similarity-distribution diagnostics
