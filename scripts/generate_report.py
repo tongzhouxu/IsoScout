@@ -339,6 +339,37 @@ def _snp_section(result: dict[str, Any]) -> list[str]:
     return lines
 
 
+def _rep_section(result: dict[str, Any]) -> list[str]:
+    rep = result.get("rep_designations")
+    if not rep:
+        return []
+    lines = ["## CDC REP designations", ""]
+    if rep["status"] == "UNREADABLE":
+        return lines + [f"REP labels could not be read from this database ({rep.get('error', 'unknown error')}); "
+                        "no REP status is reported."]
+    if rep["status"] == "TABLE_ABSENT":
+        return lines + ["No REP label in this database: this database release has no `REP_CLUSTER` table. "
+                        "This says nothing about whether any cluster is linked to a REP strain."]
+    basis = {
+        "snp_resolution": "the SNP-resolved cluster",
+        "snp_resolution_unresolved": "the unresolved SNP-supported clusters",
+        "mashpit_top_candidate": "Mashpit's top candidate (no SNP resolution)",
+    }.get(rep.get("final_call_basis"), "none")
+    lines.append(f"Labels come from the database's `REP_CLUSTER` table, matched by exact PDS accession. Called cluster(s): {basis}.")
+    lines.extend(["", "| Cluster | Role | REP designation | Evidence | Source |", "|---|---|---|---|---|"])
+    rows = [("Final call", entry) for entry in rep["final_clusters"]]
+    final = {entry["cluster"] for entry in rep["final_clusters"]}
+    rows += [("Mashpit candidate", entry) for entry in rep["candidate_clusters"] if entry["cluster"] not in final]
+    for role, entry in rows:
+        if entry["status"] == "LABELLED":
+            lines.append(f"| {entry['cluster']} | {role} | **{entry['rep_designation']}** | "
+                         f"{entry.get('evidence_status') or 'not recorded'} | {entry['source_url']} |")
+        else:
+            lines.append(f"| {entry['cluster']} | {role} | No REP label in this database | - | - |")
+    lines.extend(["", rep["statement"]])
+    return lines
+
+
 def generate_report(result: dict[str, Any]) -> str:
     lines = [
         f"# IsoScout screening report: {result['sample']}",
@@ -383,6 +414,10 @@ def generate_report(result: dict[str, Any]) -> str:
     lines.append("")
     lines.extend(_snp_section(result))
     lines.append("")
+    rep_lines = _rep_section(result)
+    if rep_lines:
+        lines.extend(rep_lines)
+        lines.append("")
     lines.append("## What this does and does not mean")
     lines.append("")
     lines.append(
