@@ -7,6 +7,8 @@ import argparse
 import os
 import re
 import shutil
+import time
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -31,6 +33,21 @@ from run_minimap import run_minimap
 from interpret_assembly_comparison import interpret as interpret_assembly_comparison
 from select_snp_targets import select_targets
 from validate_assembly import assess
+
+
+@contextmanager
+def measure_stage(timings, stage):
+    """Accumulate wall time, including failed attempts, without hiding errors."""
+    started = time.monotonic()
+    row = timings.setdefault(stage, {"elapsed_seconds": None, "calls": 0, "failed_calls": 0})
+    row["calls"] += 1
+    try:
+        yield
+    except BaseException:
+        row["failed_calls"] += 1
+        raise
+    finally:
+        row["elapsed_seconds"] = (row["elapsed_seconds"] or 0.0) + time.monotonic() - started
 
 
 def sample_name(path: Path) -> str:
@@ -116,7 +133,9 @@ def run_snp_resolution(
     snp_backend: str | None = None, assembly_manifest: Path | None = None,
     comparison_cache: Path | None = None, assembly_policy_path: Path | None = None,
     comparison_workers: int | None = None,
+    stage_timings: dict | None = None,
 ) -> dict[str, Any]:
+    stage_timings = stage_timings if stage_timings is not None else {}
     policy = load_json(CONFIG_DIR / "snp-resolution-policy.json")
     workflow = load_json(CONFIG_DIR / "workflow.json")
     refinement_policy_path = refinement_policy_path or CONFIG_DIR / "refinement-policy.json"
@@ -172,19 +191,22 @@ def run_snp_resolution(
         write_json(round_dir / "requested.json", {"targets": batch})
         try:
             fetch_args = {"local_manifest":assembly_manifest} if assembly_manifest else {}
-            fetch_result = fetch_genomes(accessions, round_dir / "genomes", policy["download_attempts"], policy["download_retry_delay_seconds"], **fetch_args)
+            with measure_stage(stage_timings, "reference_retrieval"):
+                fetch_result = fetch_genomes(accessions, round_dir / "genomes", policy["download_attempts"], policy["download_retry_delay_seconds"], **fetch_args)
             commands.extend(fetch_result["commands"])
             genomes.update(fetch_result["verified"])
             unavailable.update(fetch_result["unavailable"])
             if len(genomes) < 2:
                 interpretation = {"status": "INSUFFICIENT_DATA", "ranked": [], "warnings": ["No usable reference genomes could be downloaded."]}
             elif backend != "ska":
-                comparison = (run_minimap if backend=="minimap2" else run_mummer)(genomes,round_dir/backend,comparison_cache,assembly_policy_path,comparison_workers)
+                with measure_stage(stage_timings, "snp_comparison"):
+                    comparison = (run_minimap if backend=="minimap2" else run_mummer)(genomes,round_dir/backend,comparison_cache,assembly_policy_path,comparison_workers)
                 commands.extend(comparison["commands"])
                 comparison_runs.append({key:comparison[key] for key in ("alignment_jobs","cache_hits","elapsed_seconds","status","tools","policy","policy_sha256","implementation_sha256","cache_directory")})
                 interpretation = interpret_assembly_comparison(comparison["comparisons"],list(targets.values()),best_cluster,comparison["policy"])
             else:
-                ska_result = run_ska(genomes, round_dir / "ska", kmer_size)
+                with measure_stage(stage_timings, "snp_comparison"):
+                    ska_result = run_ska(genomes, round_dir / "ska", kmer_size)
                 commands.extend(ska_result["commands"])
                 interpretation = interpret_snp_resolution(
                     ska_result["distances"], list(targets.values()), best_cluster,
@@ -422,6 +444,8 @@ def screen(
     result: dict[str, Any] = {
         "schema_version": "1.1.0",
         "analysis_mode": "full" if snp_resolve else "screen_only",
+        "stage_timings": {name: {"elapsed_seconds": None, "calls": 0, "failed_calls": 0}
+                          for name in ("mashpit", "reference_retrieval", "snp_comparison")},
         "sample": sample_name(inputs[0]),
         "status": "FAILED",
         "warnings": [],
@@ -487,12 +511,13 @@ def screen(
             raise WorkflowError("Assembly QC failed: " + "; ".join(routed_qc["failures"]))
         if routed_qc["status"] == "WARN":
             result["warnings"].extend(routed_qc["warnings"])
-        mashpit_run = run_mashpit(
-            assembly,
-            database_root / routing["database_name"],
-            routing["database_name"],
-            output_dir / "mashpit",
-        )
+        with measure_stage(result["stage_timings"], "mashpit"):
+            mashpit_run = run_mashpit(
+                assembly,
+                database_root / routing["database_name"],
+                routing["database_name"],
+                output_dir / "mashpit",
+            )
         commands.append(mashpit_run["command"])
         database_metadata = mashpit_run["database"]
         result["database"] = database_metadata
@@ -536,6 +561,7 @@ def screen(
                         parsed["best_candidate"]["cluster"], output_dir / "snp_resolution",
                         database_metadata, snp_expand, query_reads, snp_selection_mode, query_accession,
                         refinement_policy_path, snp_backend, assembly_manifest, comparison_cache, assembly_policy_path, comparison_workers,
+                        stage_timings=result["stage_timings"],
                     )
                     result["snp_resolution"] = snp_outcome["snp_resolution"]
                     commands.extend(snp_outcome["commands"])
@@ -568,6 +594,7 @@ def screen(
         result["stop_reason"] = str(error)
     finally:
         result["user_summary"] = summary_text(result)
+        write_json(output_dir / "stage_timings.json", result["stage_timings"])
         write_json(output_dir / "result.json", result)
         (output_dir / "report.md").write_text(generate_report(result), encoding="utf-8")
         provenance = collect(inputs, assembly, database_metadata, commands, result, refinement_policy_path)

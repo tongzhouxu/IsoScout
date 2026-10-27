@@ -38,13 +38,18 @@ if command -v vcgencmd >/dev/null; then
 fi
 printf '\nResults: %s\nExit code: %s\n' "$run" "$status"
 if [[ -f "$run/analysis/result.json" ]]; then
-    python - "$run/analysis/result.json" <<'PY'
+    python - "$run/analysis/result.json" <<'PY' | tee "$run/summary.txt"
 import json, sys
 r = json.load(open(sys.argv[1])); s = r.get('snp_resolution', {})
 for name, value in [('analysis_mode', r.get('analysis_mode')), ('status', r.get('status')),
                     ('SNP backend', s.get('backend')), ('SNP status', s.get('status')),
                     ('stop_reason', r.get('stop_reason'))]:
     print(f'{name}: {value}')
+print('Stage wall times (seconds; downloads are separate):')
+for name, row in r.get('stage_timings', {}).items():
+    seconds = row['elapsed_seconds']
+    value = 'not run' if seconds is None else f'{seconds:.3f}'
+    print(f"  {name}: {value}; calls={row['calls']}; failed_calls={row['failed_calls']}")
 PY
 fi
 exit "$status"

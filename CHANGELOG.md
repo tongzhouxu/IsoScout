@@ -4,6 +4,8 @@ All notable changes to this project are documented here. Format loosely follows 
 
 ## [Unreleased]
 
+- CLI 1.5.0.dev2 records separate wall times for Mashpit, reference retrieval and SNP comparison, including failed attempts. The Pi pilot saves a stage summary alongside whole-command GNU time measurements.
+
 - Workflow 1.14.0 / CLI 1.5.0.dev1 makes SNP comparison the default for CLI, source and skill runs. `--screen-only` explicitly requests candidate screening; `--snp-resolve` remains a compatibility alias. Assembly comparisons default to minimap2. Full runs without completed required comparisons return `INCOMPLETE` and a nonzero exit status, preserving partial evidence. Reports no longer label unexecuted comparisons as SKA. Scientific thresholds and selection budgets are unchanged.
 
 - Added the installable `isoscout screen` CLI (package `1.5.0.dev0`), using the existing Docker launcher by default and the same bundled workflow through explicit native execution. Wheels include the scientific policies without duplicating their source. CLI version and executor are retained in provenance; existing script entry points remain supported. The README keeps skill-assisted use first and adds command-line installation and native dependency guidance. Scientific workflow/policy versions and parameters are unchanged.

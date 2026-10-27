@@ -49,3 +49,25 @@ Copy results back to the server and verify they arrived before deleting the old
 organism's database bundle on Pi. Full-analysis directories also contain downloaded
 references and alignment artifacts; archive those directories before removing
 them if space is needed. Then transfer the next complete bundle and repeat.
+
+## Separate stage timings
+
+CLI 1.5.0.dev2 records `analysis/stage_timings.json`, also embedded in
+`analysis/result.json`. The pilot prints these values and saves `summary.txt`:
+
+- `mashpit`: the Mashpit invocation and its wrapper processing.
+- `reference_retrieval`: fetching/local lookup, retries and reference verification.
+- `snp_comparison`: the backend comparison call, including minimap2, paftools
+  variant calling and comparison processing; excludes reference retrieval.
+
+All values are elapsed wall seconds measured with a monotonic clock, accumulated
+across rounds. `calls` records attempts and `failed_calls` counts calls that raised an exception.
+Partial results returned normally are described by the analysis status, not this
+exception counter; unexecuted times are null. Partial timings are retained when
+an ordinary workflow error is caught. Force-killing the process can prevent final
+files being written. Cache reuse is included in the observed times.
+
+These are not per-stage CPU or memory measurements. Their sum excludes QC,
+selection, diagnostics, downstream interpretation/reporting, provenance and
+startup. Use GNU time's `time.txt` for the whole CLI's elapsed time, CPU and peak
+RSS. Older runs cannot be given exact missing stage timings retroactively.

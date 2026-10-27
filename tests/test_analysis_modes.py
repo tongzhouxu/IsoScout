@@ -51,6 +51,21 @@ class AnalysisModeTests(unittest.TestCase):
                 self.assertEqual(result['analysis_mode'],'full' if full else 'screen_only')
                 saved=json.loads((work/'out/result.json').read_text())
                 self.assertEqual(saved['status'],expected)
+                timings = json.loads((work/'out/stage_timings.json').read_text())
+                self.assertEqual(timings, saved['stage_timings'])
+                self.assertEqual(timings['mashpit']['calls'], 1)
+                self.assertGreaterEqual(timings['mashpit']['elapsed_seconds'], 0)
+
+    def test_stage_timer_accumulates_and_preserves_exceptions(self):
+        timings = {}
+        with patch.object(screen_isolate.time, 'monotonic', side_effect=[10., 12., 20., 23.]):
+            with screen_isolate.measure_stage(timings, 'reference_retrieval'):
+                pass
+            with self.assertRaisesRegex(WorkflowError, 'download failed'):
+                with screen_isolate.measure_stage(timings, 'reference_retrieval'):
+                    raise WorkflowError('download failed')
+        self.assertEqual(timings['reference_retrieval'],
+                         {'elapsed_seconds': 5., 'calls': 2, 'failed_calls': 1})
 
     def test_unexecuted_report_does_not_claim_backend(self):
         # No synthetic comparison result should be manufactured for missing candidates.

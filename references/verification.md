@@ -25,7 +25,7 @@ their existing imports and relative policy paths. Treat the private modules as
 implementation details, not a stable Python API. Source script paths remain
 supported for the skill and existing container entry point.
 
-CLI package version `1.5.0.dev1` identifies the unreleased packaging work.
+CLI package version `1.5.0.dev2` identifies the unreleased packaging work.
 Scientific workflow and policy versions remain independently recorded in
 `config/*.json`. Changing packaging does not validate a new tool environment.
 
