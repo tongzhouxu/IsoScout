@@ -1,6 +1,20 @@
 # Setup
 
-Run analyses in the pinned container built from `container/Dockerfile`. Mashpit is installed from upstream commit `538d3421302fe6dd129780605b8ff5dedbf4c046c`, not from the older published PyPI artifact. Runtime package installation is not part of an analysis.
+The default executor runs analyses in the pinned container built from `container/Dockerfile`. Mashpit is installed from upstream commit `538d3421302fe6dd129780605b8ff5dedbf4c046`, not from the older published PyPI artifact. Runtime package installation is not part of an analysis.
+
+Install the CLI from this checkout using Python 3.9 or newer (3.11 recommended):
+
+```bash
+python3 -m venv .venv
+.venv/bin/python -m pip install .
+.venv/bin/isoscout --version
+```
+
+Use the absolute path to this environment's `isoscout` executable in agent tool
+calls; activating an environment in one shell does not activate later shells.
+The skill stays in the checkout, alongside its references and agent metadata.
+The CLI wheel bundles the workflow and policies, but does not register the skill,
+install biological tools, or fetch an image or database.
 
 Build the image from the repository root:
 
@@ -23,12 +37,22 @@ image ID and checkout commit; the baseline digest is not the derived image ident
 Run an assembly with a known organism:
 
 ```bash
-python3 scripts/launch_isoscout.py /absolute/path/to/sample.fasta \
+.venv/bin/isoscout screen /absolute/path/to/sample.fasta \
   --organism salmonella \
   --output /absolute/path/to/results/sample-screen
 ```
 
 Omit `--organism` to use local MLST routing. The output directory must not already exist.
+
+The original `python3 scripts/launch_isoscout.py ...` command remains supported.
+`isoscout screen --executor native ...` runs the same workflow directly with
+tools already installed on `PATH`; see the [native runtime requirements](../README.md#native-execution).
+Native mode is explicit and does not fall back from Docker after a failure.
+It is not a guarantee of ARM support or equivalence to the pinned environment.
+The CLI's own package version is recorded separately from scientific workflow
+and policy versions. For a wheel-installed Docker launcher, the launcher Git
+identity is recorded as unknown; the container's actual source revision and
+image ID remain recorded. Keep the wheel or source revision for exact replay.
 
 Set `ISOSCOUT_DATABASE_ROOT` or pass `--database-root`. The directory must contain:
 

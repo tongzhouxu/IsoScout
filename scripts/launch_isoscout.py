@@ -17,6 +17,10 @@ ORGANISMS = ("salmonella", "ecoli_shigella", "listeria", "campylobacter", "crono
 
 
 def git_identity(root: Path) -> tuple[str, str]:
+    # Installed wheels may live inside an unrelated Git checkout. Only report
+    # a launcher commit when this file is the checkout's actual source script.
+    if (root / "scripts" / "launch_isoscout.py").resolve() != Path(__file__).resolve():
+        return "unknown", "unknown"
     try:
         commit = subprocess.run(
             ["git", "-C", str(root), "rev-parse", "HEAD"],
@@ -105,6 +109,9 @@ def build_command(
         "--env", f"ISOSCOUT_LAUNCHER_DIRTY={launcher_dirty}",
     ]
     mounted: set[tuple[str, str]] = set()
+    for name in ("ISOSCOUT_CLI_VERSION", "ISOSCOUT_EXECUTOR"):
+        if name in os.environ:
+            command.extend(["--env", f"{name}={os.environ[name]}"])
     container_inputs = []
     for index, path in enumerate(inputs, start=1):
         suffix = "".join(path.suffixes)
@@ -151,6 +158,7 @@ def build_command(
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
+        prog=os.environ.get("ISOSCOUT_CLI_PROG"),
         description="Run IsoScout in its pinned Docker environment.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )

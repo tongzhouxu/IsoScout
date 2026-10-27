@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "isoscout"
+dynamic = ["version"]
+description = "Reproducible isolate screening with command-line and AI-agent skill interfaces"
+readme = "README.md"
+requires-python = ">=3.9"
+license = {file = "LICENSE"}
+authors = [{name = "Tongzhou Xu"}]
+dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/tongzhouxu/IsoScout"
+Issues = "https://github.com/tongzhouxu/IsoScout/issues"
+
+[project.scripts]
+isoscout = "isoscout.cli:main"
+
+[tool.setuptools]
+packages = ["isoscout", "isoscout._workflow", "isoscout.config"]
+include-package-data = false
+
+# Package the existing implementation and policies without maintaining copies.
+# The checkout's script entry points remain usable by the skill and container.
+[tool.setuptools.package-dir]
+isoscout = "src/isoscout"
+"isoscout._workflow" = "scripts"
+"isoscout.config" = "config"
+
+[tool.setuptools.package-data]
+"isoscout.config" = ["*.json"]
+
+[tool.setuptools.dynamic]
+version = {attr = "isoscout.__version__"}

@@ -2,6 +2,11 @@
 
 `scripts/screen_isolate.py` owns routing; subordinate scripts own computation.
 
+`isoscout screen` is the installed entry point used by both command-line users
+and the skill. It dispatches to the existing Docker launcher by default, or to
+this same Python workflow with explicit `--executor native`. Packaging does not
+change scientific policies, selection rules, or result interpretation.
+
 Assembly input:
 
 ```text
@@ -16,7 +21,7 @@ Paired Illumina input adds:
 validate complete R1/R2 FASTQ → fastp → SKESA → QUAST → assembly-input path
 ```
 
-Commands and parameters come from versioned `config/*.json` policies. Mashpit is pinned to upstream commit `538d3421302fe6dd129780605b8ff5dedbf4c046c`. The fixed profile is:
+Commands and parameters come from versioned `config/*.json` policies. Mashpit is pinned to upstream commit `538d3421302fe6dd129780605b8ff5dedbf4c046`. The fixed profile is:
 
 ```text
 mashpit query ASSEMBLY DATABASE --number 200 --threshold 0.85 --tie-tolerance-hashes 2

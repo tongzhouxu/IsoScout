@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import shutil
 from pathlib import Path
@@ -559,7 +560,7 @@ def screen(
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(prog=os.environ.get("ISOSCOUT_CLI_PROG"))
     parser.add_argument("inputs", nargs="+")
     parser.add_argument("--output", required=True)
     parser.add_argument("--database-root")

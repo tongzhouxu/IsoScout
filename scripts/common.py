@@ -83,7 +83,8 @@ def require_executable(executable: str) -> str:
     resolved = shutil.which(executable)
     if not resolved:
         raise WorkflowError(
-            f"Required executable '{executable}' was not found. Run this skill in its pinned container."
+            f"Required executable '{executable}' was not found. Use the pinned Docker executor "
+            "or install the documented native dependencies."
         )
     return resolved
 

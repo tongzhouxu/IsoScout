@@ -9,16 +9,17 @@ Run the bundled workflow; do not assemble bioinformatics commands or choose new 
 
 ## Screen an isolate
 
-1. Confirm Docker is running and the current image was built from this checkout. Read [references/setup.md](references/setup.md) only when setup or a database is missing.
+1. For the default Docker executor, confirm Docker is running and the current image was built from this checkout. For an explicitly configured native installation, verify its required tools instead. Read [references/setup.md](references/setup.md) when setup or a database is missing.
 2. Confirm the user supplied either one FASTA/FNA assembly or an R1/R2 Illumina FASTQ pair. Long reads, hybrid reads, interleaved reads, and metagenomes are unsupported.
-3. Run the host launcher from this skill directory:
+3. Use the CLI installed from this checkout (the setup instructions place it in `.venv`):
 
    ```bash
-   python3 <skill-directory>/scripts/launch_isoscout.py INPUT [INPUT_R2] \
+   <skill-directory>/.venv/bin/isoscout screen INPUT [INPUT_R2] \
      --output OUTPUT_DIR [--organism ORGANISM_KEY]
    ```
 
    Use a new output directory. `ORGANISM_KEY` is one of `salmonella`, `ecoli_shigella`, `listeria`, `campylobacter`, or `cronobacter`. Omit it only when the organism is unknown; local MLST then routes among those five supported databases. This is not general species identification. The routed database must already be installed.
+   If installed in another environment, use that installation's absolute CLI path. For a source checkout without the CLI installed, `python3 <skill-directory>/scripts/launch_isoscout.py` remains an equivalent entry point. The CLI defaults to Docker. Use `--executor native` only for a deliberately configured and verified native environment; never switch executors to work around a failed run.
 4. Read `OUTPUT_DIR/result.json`. Treat `status`, `stop_reason`, and `user_summary` as authoritative. Never infer a result from incomplete logs.
 5. Give the concise result first. Explain the evidence, alternatives or ties, what references were examined or left unexamined, material limitations, and the next appropriate validation step. Link `report.md`, `result.json`, and `provenance.json`.
 

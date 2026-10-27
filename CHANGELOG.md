@@ -4,6 +4,8 @@ All notable changes to this project are documented here. Format loosely follows 
 
 ## [Unreleased]
 
+- Added the installable `isoscout screen` CLI (package `1.5.0.dev0`), using the existing Docker launcher by default and the same bundled workflow through explicit native execution. Wheels include the scientific policies without duplicating their source. CLI version and executor are retained in provenance; existing script entry points remain supported. The README keeps skill-assisted use first and adds command-line installation and native dependency guidance. Scientific workflow/policy versions and parameters are unchanged.
+
 - The screen reports CDC REP designations from the `REP_CLUSTER` table in [`databases-rep-2026-10`](https://github.com/tongzhouxu/IsoScout/releases/tag/databases-rep-2026-10) packages. It labels the final called cluster and Mashpit's displayed candidates by exact PDS accession, reports a missing table or row as no REP label in the database, and states that a match does not confirm outbreak-strain membership. Results from `databases-v2` packages are otherwise unchanged.
 
 - Workflow 1.13.0 / skill 1.4.0 adds target-relative common-region verification and bounded candidate challenges to the focused-expansion workflow. It tracks per-cluster qualifying coverage, preserves unresolved and region-sensitive alternatives, and separates cluster support from nearest-genome resolution. Initial selection, Mashpit return limits, and default resource limits remain unchanged. Biological validation remains outstanding.

@@ -2,97 +2,112 @@
 
 [![License: GPL v2](https://img.shields.io/badge/License-GPL_v2-blue.svg)](LICENSE)
 
-IsoScout screens a bacterial isolate (a genome you sequenced) against public outbreak-cluster data, to tell you which known cluster of related bacteria it's most similar to. You do not need to know how to code to use it — you need to install two ordinary applications, then just describe what you want in plain English to an AI coding assistant (Claude Code or Codex), and it does the rest. That's what this page walks you through first. If you're comfortable with the command line already, skip to [Manual setup](#manual-setup) below.
+IsoScout screens a bacterial isolate against local [Mashpit](https://github.com/tongzhouxu/mashpit) databases of NCBI Pathogen Detection SNP clusters, with optional higher-resolution comparisons against candidate assemblies.
 
-## Quick start (no coding experience needed)
+Its **AI-agent skill** helps you set up an analysis, run it from a plain-language request, and understand the evidence and limitations in the report. The **command-line interface (CLI)** exposes the same workflow for direct use and automation. Both use the same versioned scientific code and policies; the assistant does not replace the analysis or decide its thresholds.
 
-### What you'll need
+| How you want to work | Start here |
+| --- | --- |
+| Describe your task to an assistant and discuss the results | [Skill-assisted quick start](#skill-assisted-quick-start) |
+| Install and run IsoScout yourself | [Command-line quick start](#command-line-quick-start) |
+| Run without Docker using your own tool environment | [Native execution](#native-execution) |
+| Screen an existing assembly on a Raspberry Pi | [Raspberry Pi: assemblies only](#raspberry-pi-assemblies-only) |
 
-- A Mac, Windows (with WSL2), or Linux computer with at least **10GB of free disk space** and a decent internet connection (you'll be downloading a few GB).
-- A genome file for the bacterial isolate you want to screen: either one assembled genome (a `.fasta`/`.fna` file), or two raw paired-end Illumina read files (commonly named something like `sample_R1.fastq.gz` and `sample_R2.fastq.gz`). If you don't have one yet and just want to try the process, ask the assistant in Step 3 below to fetch a public example genome for you from NCBI instead of using your own file.
-- Roughly 15-40 minutes for one-time setup (mostly waiting for downloads), then a few minutes per genome you screen after that.
+Supported organism keys are `salmonella`, `ecoli_shigella`, `listeria`, `campylobacter`, and `cronobacter`. A candidate cluster is screening evidence, not confirmation of outbreak membership. See [limitations](references/limitations.md).
 
-### Step 1 — Install Docker Desktop
+## Skill-assisted quick start
 
-This is the program that actually runs the analysis in an isolated, reproducible way. It's a normal application, installed like any other:
+Use this path if you want an assistant to manage the commands and explain the results. Keep the IsoScout checkout: [SKILL.md](SKILL.md), `references/`, and `agents/` provide its instructions and supporting material. Installing the CLI alone does not register the skill with an assistant.
 
-1. Go to [docker.com/products/docker-desktop](https://www.docker.com/products/docker-desktop/) and download it for your computer.
-2. Install it the way you'd install any app (double-click, follow the prompts).
-3. Open the Docker Desktop app once and leave it running in the background. You'll know it worked if you see a little whale icon in your menu bar / system tray. It needs to stay running any time you use this skill.
+### 1. Prepare your computer and assistant
 
-### Step 2 — Install Claude Code or Codex
+Use a terminal-capable assistant, such as Claude Code or Codex, that can read local files and execute commands. Point it to the checkout's `SKILL.md`; it can then follow IsoScout's workflow instructions. See your assistant's documentation for automatic skill discovery or installation.
 
-This is the AI assistant that will read your instructions, download things, and run the analysis for you — so you don't have to type any of the technical commands yourself.
+For the default setup, you need:
 
-- **Claude Code**: see [claude.com/claude-code](https://claude.com/claude-code) for the current install instructions for your computer.
-- **Codex**: see OpenAI's current Codex documentation for install instructions.
+- Python 3.9 or newer; **Python 3.11 is recommended**.
+- A running Docker installation: [Docker Desktop](https://www.docker.com/products/docker-desktop/) on a desktop computer, or Docker Engine on Linux. Run the command-line steps inside WSL2 on Windows.
+- Disk space for the container, extracted databases, and outputs. Download only the organism database(s) you need.
+- One assembled genome (`.fa`, `.fasta`, or `.fna`), or paired Illumina FASTQ files on a workstation/server with sufficient memory for assembly. The configured SKESA memory budget is 16 GB, in addition to system overhead.
 
-Once installed, open the assistant so you have a chat window. Codex automatically discovers user skills placed at `~/.codex/skills/isoscout`; a checkout elsewhere still works when you point the assistant to its `SKILL.md`, as the prompt below does.
+The current container targets `linux/amd64`; Apple Silicon uses emulation. **Raspberry Pi users should use the native, assembly-only path below. Raw-read processing is not supported on the Pi.** Setup and run times depend on downloads, database size, input and requested stages.
 
-### Step 3 — Ask it to set everything up
+### 2. Ask the assistant to set up IsoScout
 
-Copy the box below and replace `[ORGANISM OR UNKNOWN]`. Supported keys are `salmonella`, `ecoli_shigella`, `listeria`, `campylobacter`, and `cronobacter`. Use `UNKNOWN` rather than guessing.
+Replace the bracketed text in this prompt. If you already cloned the repository, give its path so the assistant can reuse it. Use `UNKNOWN` if you do not know the organism independently.
 
-```
-Please set up IsoScout for me:
+```text
+Please set up IsoScout for me.
 
-1. Clone https://github.com/tongzhouxu/IsoScout. If this is Codex,
-   install it at ~/.codex/skills/isoscout; otherwise use a normal folder.
-2. Read its SKILL.md and README.md. Build the current Docker image from
-   this checkout as isoscout:local.
-3. My organism is [ORGANISM OR UNKNOWN]. If known, download and verify
-   that database-v2 package into ~/.isoscout/databases/. If UNKNOWN,
-   download and verify all five supported packages so local MLST can
-   route the sample. Do not guess or substitute an organism.
+Repository: https://github.com/tongzhouxu/IsoScout
+Existing checkout, if any: [PATH, or NONE]
+Organism: [salmonella, ecoli_shigella, listeria, campylobacter,
+           cronobacter, or UNKNOWN]
 
-Explain each step briefly as you go, and tell me clearly once
-everything is downloaded and ready.
-```
+Reuse my existing checkout, or clone the repository if I have none.
+Read SKILL.md and README.md. Check my computer's requirements, create
+.venv in the checkout, and install the CLI there. For this workstation,
+build the current Docker image as isoscout:local. Use the absolute path
+to .venv/bin/isoscout in later commands.
 
-It will likely pause partway through to ask your permission before running certain commands (downloading files, running Docker) — that's normal and expected; read what it says it's about to do, and approve it if it matches the steps above.
+Download and verify the matching databases-v2 package under
+~/.isoscout/databases/. If the organism is UNKNOWN, prepare all five
+supported packages for local MLST routing. Do not guess the organism.
 
-### Step 4 — Ask it to screen your genome
-
-Once setup is done, fill in the path to your genome file(s). Include the organism only when you know it.
-
-```
-Please screen this genome using IsoScout, which you
-just set up: [PATH TO YOUR .fasta FILE, OR YOUR TWO .fastq.gz FILES]
-
-Organism: [ORGANISM, or UNKNOWN]
-
-Once it finishes, open the report.md file it produces and explain
-the result to me in plain English. Tell me what evidence supports the
-result, whether there are alternatives or ties, what references were
-examined or left unexamined, the main limitations, and what I should
-do next.
+Explain what you configured and tell me when it is ready.
 ```
 
-A first run typically takes a few minutes. When the organism is unknown, IsoScout uses local MLST to route among its five supported databases. That routing is not a general species-identification method.
+This prompt uses the default workstation/container setup. If a native environment is already configured, explicitly tell the assistant to use `--executor native` and give its executable and database paths. Changing the interface does not remove the [Pi limitations](#raspberry-pi-assemblies-only).
 
-### If something goes wrong
+### 3. Ask for a screen and an explanation
 
-- **"Cannot connect to the Docker daemon"** — Docker Desktop isn't running. Reopen the Docker Desktop app and wait for the whale icon to stop animating, then try again.
-- **Running out of disk space** — each organism's database ranges from ~3MB (cronobacter) to ~530MB (ecoli_shigella) compressed; you only need the one(s) you're actually screening against, not all five.
-- **Anything else** — paste the error message back to the assistant and ask it to diagnose and fix it; that's exactly the kind of thing it's good at.
+```text
+Read the IsoScout SKILL.md in [CHECKOUT PATH] and screen:
+[ABSOLUTE PATH TO ONE ASSEMBLY, or R1 AND R2 FASTQ PATHS]
 
-## What this actually does
+Organism: [KNOWN ORGANISM, or UNKNOWN]
+Output directory: [NEW DIRECTORY PATH]
 
-Screens a bacterial isolate — raw paired Illumina reads or an assembly — against [Mashpit](https://github.com/tongzhouxu/mashpit), a MinHash-sketch database of NCBI Pathogen Detection SNP clusters, and optionally refines candidates using target-to-candidate assembly comparisons with [minimap2](https://github.com/lh3/minimap2) and paftools (legacy SKA2 for paired reads). It tells you which known cluster of bacteria your sample most resembles — useful for narrowing down a possible outbreak connection, though it is a screening tool, not proof of one (see [references/limitations.md](references/limitations.md)).
+Start with the screening workflow. Read report.md and result.json,
+and explain the candidate clusters, alternatives or ties, QC stops,
+and limitations. Distinguish completed analysis from failed or
+unperformed stages. Keep the structured results and provenance.
+```
 
-Every command, threshold, and parameter it runs is fixed in version-controlled config (`config/*.json`) — the AI assistant only runs one script and reports the result back to you; it never invents a bioinformatics command or a cutoff on its own. See [SKILL.md](SKILL.md) for the full technical contract it follows.
+The assistant should preserve QC stops and unresolved findings, explain which references were examined, and avoid presenting a screening result as outbreak confirmation. You can discuss [optional refinement](#optional-refinement) after reviewing the screen.
 
-Supports `salmonella`, `ecoli_shigella`, `listeria`, `campylobacter`, and `cronobacter`. Nothing is uploaded during a screen — your genome stays on your own computer. Mashpit is installed from a pinned upstream commit (`538d3421302fe6dd129780605b8ff5dedbf4c046c`), not the older published PyPI release.
+The analysis runs locally. The screening workflow does not upload the query genome, but your chosen assistant may send conversation or tool content to its provider. Reference downloads also require network access when assemblies are not supplied locally.
 
-## Manual setup
+## Command-line quick start
 
-For anyone who'd rather run the commands themselves instead of asking an assistant to.
+An AI assistant is not required. The examples below use a Bash-compatible shell on Linux, macOS, or WSL2.
 
-You need two things: the container image, and a Mashpit database for at least one organism.
+### 1. Install the CLI
 
-The container image uses `ghcr.io/tongzhouxu/isoscout`; the examples tag it locally as `isoscout:local`.
+From a checkout, with Python 3.9 or newer (3.11 recommended):
 
-**1. Build the image** — from this checkout:
+```bash
+git clone https://github.com/tongzhouxu/IsoScout.git
+cd IsoScout
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install .
+isoscout --version
+isoscout screen --help
+```
+
+If you already have a checkout, start from that directory. This CLI package is installed from source or a built wheel; it is not yet published to PyPI. `python -m isoscout` also works after installation. In a new shell, activate the environment again or use the absolute path to `.venv/bin/isoscout`.
+
+The package includes the workflow scripts and policy files. **Install a runtime and a database as well:** `pip install .` does not install Docker, an image, Mashpit, other analysis tools, or databases.
+
+### 2. Choose the runtime
+
+| Runtime | Use it when | Setup |
+| --- | --- | --- |
+| Docker (default) | You want the reference tool environment on a workstation/server | Build the image below |
+| Native (`--executor native`) | You manage the tools yourself, including on ARM64 | Follow [native execution](#native-execution), then continue to step 3 |
+
+For Docker, start Docker and build from the IsoScout checkout:
 
 ```bash
 docker build --platform linux/amd64 \
@@ -100,47 +115,116 @@ docker build --platform linux/amd64 \
   -f container/Dockerfile -t isoscout:local .
 ```
 
-The recipe extends the pinned published baseline image, preserves its Mashpit
-and Python environment, and installs the assembly-comparison tools in a separate
-environment from an explicit package lock. It includes the current source tree.
-The host launcher records the built image ID and checkout commit with each run.
-The configured baseline digest alone does not identify this derived image.
+The recipe extends a pinned baseline image and includes this checkout's workflow. The image is **AMD64-only**; the launcher requests that architecture explicitly. On Apple Silicon it runs under emulation. On a Pi, use native execution instead.
 
-The published image is `linux/amd64` only: `quast=5.3.0` has no native
-`linux/arm64` build for the pinned Python 3.11. Use `--platform linux/amd64`
-on Apple Silicon to run it under emulation.
+The container pins Mashpit to upstream commit `538d3421302fe6dd129780605b8ff5dedbf4c046`. Tool versions, policies, and the actual runtime image identity are recorded for reproducibility; see [setup details](references/setup.md).
 
-**2. Get a database** — download one of the published packages from
-[databases-v2](https://github.com/tongzhouxu/IsoScout/releases/tag/databases-v2). Set `org` to your sample's
-organism key:
+### 3. Install an organism database
+
+Both runtimes use the same [databases-v2 packages](https://github.com/tongzhouxu/IsoScout/releases/tag/databases-v2). Set `org` to the organism you know your sample belongs to. This example downloads, verifies, and extracts one package; it stops if verification fails and leaves your shell in its original directory.
 
 ```bash
-mkdir -p ~/.isoscout/databases && cd ~/.isoscout/databases
-org=salmonella
-curl -fLO "https://github.com/tongzhouxu/IsoScout/releases/download/databases-v2/${org}.tar.gz"
-curl -fLO https://github.com/tongzhouxu/IsoScout/releases/download/databases-v2/checksums.sha256.txt
-grep "  ${org}.tar.gz$" checksums.sha256.txt | shasum -a 256 -c -
-tar -xzf "${org}.tar.gz"
+(
+  set -euo pipefail
+  mkdir -p ~/.isoscout/databases
+  cd ~/.isoscout/databases
+  org=salmonella
+  curl -fLO "https://github.com/tongzhouxu/IsoScout/releases/download/databases-v2/${org}.tar.gz"
+  curl -fLO https://github.com/tongzhouxu/IsoScout/releases/download/databases-v2/checksums.sha256.txt
+  grep "  ${org}.tar.gz$" checksums.sha256.txt | shasum -a 256 -c -
+  tar -xzf "${org}.tar.gz"
+)
 ```
 
-You only need the organism(s) you actually plan to screen against — each is independent. `screen_isolate.py` additionally verifies a per-file checksum recorded in each organism's `database.json` on every run, so a corrupted or tampered database is caught automatically, not just at download time.
+The layout is `~/.isoscout/databases/<organism>/`, containing `database.json`, the `.db` and `.sig`, and any bundled membership files. Transfer the **whole organism folder** if copying from another machine. The workflow checks database metadata and recorded checksums on each run.
 
-Building the underlying Mashpit `.db` and `.sig` is outside this skill; see
-[Mashpit](https://github.com/tongzhouxu/mashpit). This repository does include
-a builder for packaging an existing database with its exact-release membership
-tables.
+Only the selected organism's package is required when you supply `--organism`. Automatic routing requires all databases it may select. Use `--database-root /path/to/databases` for a different location; point it at the parent of the organism folders, not at a `.db` file. Building a database is a separate [Mashpit](https://github.com/tongzhouxu/mashpit) task.
 
-## Run a screen
+### 4. Run a screen
+
+**From an existing assembly:**
 
 ```bash
-python3 scripts/launch_isoscout.py /absolute/path/to/sample.fasta \
+isoscout screen /absolute/path/to/sample.fasta \
   --organism salmonella \
   --output /absolute/path/to/results/sample-screen
 ```
 
-- Input is one assembly (`.fa`/`.fasta`/`.fna`), or two paired-end FASTQ files — replace the assembly argument with both paths (e.g. `/data/sample_R1.fastq.gz /data/sample_R2.fastq.gz`) to run the fixed fastp → SKESA → QUAST assembly workflow first.
-- Omit `--organism` to route among the five supported databases with local `mlst` and its bundled PubMLST schemes. This does not identify arbitrary species, and all databases that routing may select must already be installed.
-- The output directory must not already exist — nothing gets silently overwritten.
+**From paired Illumina reads — workstation/server only, not Raspberry Pi:**
+
+```bash
+isoscout screen /absolute/path/to/sample_R1.fastq.gz \
+  /absolute/path/to/sample_R2.fastq.gz \
+  --organism salmonella \
+  --output /absolute/path/to/results/sample-read-screen
+```
+
+The read path runs fastp → SKESA → QUAST before screening the resulting assembly. Use a machine with sufficient memory and the full tool environment for these stages.
+
+These examples use Docker by default. Add `--executor native` only when the corresponding tools are installed locally. **The output directory must be new.** Omit `--organism` only when using local MLST routing with its tools and databases installed; routing is limited to the five supported groups and is not a general species-identification method.
+
+Open `report.md` in the output directory and check `result.json` for stage status; see [reading the result](#reading-the-result). The existing `python3 scripts/launch_isoscout.py ...` entry point remains available to source-checkout users.
+
+## Native execution
+
+Native mode runs the bundled Python workflow using tools already installed on `PATH`. Use Python 3.11 for the documented Mashpit environment. Install Mashpit and the tools required for your input/stages in an appropriate environment, using the [setup reference](references/setup.md) and [version configuration](config/workflow.json). The container's `alignment-linux-64.lock` is an x86-64 lock, not an ARM64 installer.
+
+| Requested stage | Tools needed in addition to the IsoScout CLI |
+| --- | --- |
+| Assembly screening with a known organism | Compatible Mashpit and its Python dependencies |
+| Diagnostic plots | Matplotlib in the Python environment running IsoScout |
+| Automatic organism routing | `mlst` and its bundled schemes |
+| Paired-read processing, on a workstation/server | `fastp`, SKESA and QUAST |
+| Assembly refinement | Pinned minimap2, `paftools.js`, `k8`; NCBI `datasets` if references are not supplied locally |
+| Legacy paired-read refinement | SKA2 |
+
+Check the environment before running an analysis:
+
+```bash
+command -v mashpit
+mashpit --help
+python -c 'import matplotlib'
+isoscout screen --executor native --help
+```
+
+Then run an assembly screen:
+
+```bash
+isoscout screen --executor native /absolute/path/to/sample.fasta \
+  --organism salmonella \
+  --database-root "$HOME/.isoscout/databases" \
+  --output /absolute/path/to/results/sample-native-screen
+```
+
+Native installations need their own verification. Neither installing the CLI nor successfully printing help establishes that every analysis dependency works. Container-only options such as `--image` and `--print-command` do not apply to native mode. Nextflow is not required.
+
+### Raspberry Pi: assemblies only
+
+**Raw-read processing is not supported on Raspberry Pi in the current IsoScout setup. Do not supply paired FASTQ files on the Pi.** The configured read workflow uses SKESA with a 16-GB memory budget, exceeding the RAM of the 8-GB Pi 4, and the complete ARM64 read-processing stack has not been validated. Assemble and QC reads on a workstation or server, then transfer the resulting FASTA assembly to the Pi.
+
+The intended Pi use is **native screening of an existing assembly**, with the organism supplied explicitly and one database installed at a time:
+
+- Use a 64-bit ARM OS and Python 3.11, with ARM-compatible Mashpit dependencies installed separately. Some dependencies may require source builds.
+- Use `--executor native` as in the assembly example above. The current Docker image targets AMD64.
+- Copy the complete organism database folder, including `database.json`; allow room for its extracted size and output files.
+- Keep SNP refinement and member expansion on a workstation/server for this deployment. Their full Pi execution and performance have not been validated.
+
+**Pi validation is still pending:** the CLI is pure Python and its Python requirement is compatible with this setup, but a complete assembly-screening run still needs verification on the device. The raw-read limitation is deployment guidance; the CLI does not currently detect a Pi and reject FASTQ automatically.
+
+## Reading the result
+
+Both interfaces and both runtimes produce the same primary files:
+
+| File | What to use it for |
+| --- | --- |
+| `report.md` | Read the QC outcome, candidate clusters, scores, alternatives and limitations; ask the assistant to explain it if using the skill |
+| `result.json` | Inspect the authoritative structured result, including `status`, `stop_reason`, stage results and warnings |
+| `provenance.json` | Retain input/database checksums, configured and observed tool identities, commands, CLI version and executor |
+
+Exit status zero means the workflow completed, possibly with warnings. A QC stop or required-stage failure returns nonzero. Optional refinement failure can leave a successful screen with warnings, so check the requested stage's result as well as the exit code. Docker runs additionally record the actual image identity. Keep the full output directory for review and reproducibility.
+
+## Optional refinement
+
 
 Add `--snp-resolve` to compare the target assembly directly with selected
 candidate assemblies using minimap2 and its upstream paftools variant caller.
@@ -162,7 +246,7 @@ and cluster-membership tables so expansion can work after NCBI removes that
 release. Existing packages continue to use exact-release retrieval while it is
 available. Candidate assemblies must be supplied locally or downloaded separately.
 
-### CDC REP designations
+## CDC REP designations
 
 The [databases-rep-2026-10](https://github.com/tongzhouxu/IsoScout/releases/tag/databases-rep-2026-10)
 release adds a `REP_CLUSTER` table to each Mashpit `.db` (Salmonella
@@ -192,16 +276,7 @@ not confirm that the isolate belongs to the outbreak strain. `report.md` adds a
 screen's status, warnings and calls are unchanged; the block only records that
 the table is absent.
 
-### Reading the result
-
-Three primary files land in the output directory, alongside stage-specific
-audits and logs:
-
-- **`report.md`** — a plain-language summary for a non-technical reader: organism determination, read QC when the input was raw reads, Mashpit's candidate clusters and scores plus its own Mash-based tree, and (with `--snp-resolve`) the target-to-candidate SNP table, alignment coverage and distance plot (an SNP tree is available only on the legacy SKA path).
-- **`result.json`** — the structured, authoritative result. Use `status`, `stop_reason`, and `user_summary`; `rep_designations` holds any CDC REP labels.
-- **`provenance.json`** — checksums, pinned tool versions, and every command actually run, for reproducibility.
-
-### Similarity-distribution diagnostics
+## Similarity-distribution diagnostics
 
 Each successfully parsed Mashpit query now adds a rank–similarity plot and numerical diagnostics to the report. These show score gaps at ranks 50/100/200, the number of representatives within Mashpit's sketch tolerance of the best score, and whether retrieval or the current SNP selection policy may cut through a near-tie. They preview policy 3.0.1: include the global top 50 unique nonself representatives, use up to 50 more slots for alternative-cluster coverage and global rank, and cap total reference attempts (including member expansion) at 200. Sketch near-ties describe scores but do not exclude SNP candidates. `--snp-selection-mode all_returned` attempts all returned representatives if they fit the recorded 200-attempt budget. Every inclusion, resource omission, download, and qualifying or excluded comparison is recorded; these computational defaults still require biological validation.
 

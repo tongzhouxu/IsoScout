@@ -24,6 +24,10 @@ def collect(
     refinement_policy = load_json(refinement_policy_path)
     provenance = {
         "timestamp_utc": utc_now(),
+        "interface": {
+            "cli_version": os.environ.get("ISOSCOUT_CLI_VERSION"),
+            "executor": os.environ.get("ISOSCOUT_EXECUTOR"),
+        },
         "skill_version": workflow["skill_version"],
         "workflow_version": workflow["workflow_version"],
         "qc_policy_version": qc_policy["policy_version"],
