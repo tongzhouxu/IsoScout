@@ -2,25 +2,29 @@
 # Run from the prepared pi-benchmark directory with its Python venv activated.
 set -euo pipefail
 org=${1:-cronobacter}
+query_index=${2:-0}
+results_root=${3:-"$(pwd)/results"}
+export LC_ALL=C
+[[ "$query_index" =~ ^[0-9]+$ ]] || { echo 'Query index must be a nonnegative integer' >&2; exit 2; }
 case "$org" in cronobacter|listeria|campylobacter|salmonella|ecoli_shigella) ;; *) echo 'Unknown bundle name' >&2; exit 2 ;; esac
 for tool in isoscout mashpit minimap2 k8 paftools.js datasets; do command -v "$tool" >/dev/null || { echo "Missing tool: $tool" >&2; exit 1; }; done
 bundle="$(pwd)/bundles/$org"
 test -f "$bundle/inputs.json"
-readarray -t selected < <(python - "$bundle/inputs.json" <<'PY'
+readarray -t selected < <(python - "$bundle/inputs.json" "$query_index" <<'PY'
 import json, sys
-q = json.load(open(sys.argv[1]))['queries'][0]
+q = json.load(open(sys.argv[1]))['queries'][int(sys.argv[2])]
 print(q['path'])
 print(q['query_id'])
 PY
 )
 test "${#selected[@]}" -eq 2
 test -f "$bundle/${selected[0]}"
-mkdir -p cli-databases results
+mkdir -p cli-databases "$results_root"
 if [[ -e "cli-databases/$org" && ! -L "cli-databases/$org" ]]; then
     echo "Expected a symlink, found an existing path: cli-databases/$org" >&2; exit 1
 fi
 ln -sfn "$bundle/database" "cli-databases/$org"
-run=$(mktemp -d "$(pwd)/results/${org}-isoscout-full.XXXXXXXX")
+run=$(mktemp -d "$results_root/${org}-isoscout-full.XXXXXXXX")
 export OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1
 if command -v vcgencmd >/dev/null; then
     { vcgencmd measure_temp; vcgencmd get_throttled; } > "$run/pi-before.txt"

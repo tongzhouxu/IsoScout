@@ -71,3 +71,40 @@ These are not per-stage CPU or memory measurements. Their sum excludes QC,
 selection, diagnostics, downstream interpretation/reporting, provenance and
 startup. Use GNU time's `time.txt` for the whole CLI's elapsed time, CPU and peak
 RSS. Older runs cannot be given exact missing stage timings retroactively.
+
+## Full batch across the prepared queries
+
+Keep `run_pi_batch.py` and `run_pi_pilot.sh` together in `~/pi-benchmark`.
+The runner processes every query in the bundle, serially, in a saved randomized
+order. It verifies query hashes, writes `runs.tsv` and `summary.json` after every
+run, and stops on failure with partial artifacts retained. The summary identifies
+planned, recorded and successful runs. It never overwrites an existing batch.
+There is no automatic resume or dedicated warm-up. Each invocation uses a fresh
+output/comparison cache; filesystem caches are not cleared. Retrieval time is
+included in total time and recorded separately.
+
+For limited Pi storage, run one repetition (ten distinct queries) at a time:
+
+```bash
+cd ~/pi-benchmark
+source ~/isoscout-pi-venv/bin/activate
+python run_pi_batch.py --organism cronobacter --repeats 1 \
+  --seed 20261027 --output results/cronobacter-full-r1
+```
+
+Copy the entire completed batch back to the server and verify the copy before
+removing that batch's results on Pi. Keep the database until all repetitions for
+that organism finish. Repeat with fresh output names `cronobacter-full-r2` and
+`cronobacter-full-r3`, using seeds `20261028` and `20261029`. Each separate batch
+numbers its repetition locally from 1; preserve the r1/r2/r3 batch names.
+Three batches give 30 full runs per organism; five organisms give 150 runs over
+50 distinct queries. Repetitions are not independent biological observations.
+If storage permits keeping all artifacts, `--repeats 3` runs them in one batch.
+Downloaded genomes and alignment caches can occupy much more space than the
+input database; archive results between batches on a small SD card.
+
+After all three batches are safely copied, delete the old organism's database
+bundle on Pi, transfer the next complete bundle, and repeat. For the figure,
+use each query's median of its three repetitions, show total and separate stage
+wall times, and retain warnings, thermal flags and failed attempts. Do not mix
+these full-analysis measurements with `run_benchmark.py` Mashpit-only timings.
