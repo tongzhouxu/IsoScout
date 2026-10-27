@@ -12,7 +12,7 @@ Assembly input:
 ```text
 validate FASTA → broad assembly QC → user organism or local MLST scheme detection
 → select one supported database → organism-specific QC → run Mashpit once
-→ structured Mashpit parser → provenance
+→ structured Mashpit parser → minimap2 SNP comparison → report and provenance
 ```
 
 Paired Illumina input adds:
@@ -48,10 +48,10 @@ Any future replacement assembly Skill must satisfy this contract and must not we
 
 ## Similarity diagnostics
 
-After parsing Mashpit, the workflow runs `analyze_similarity_distribution.py` to describe the returned scores and audit the versioned SNP selector. It writes a JSON summary and a rank–similarity plot, included in the report even without `--snp-resolve`. Errors or possible truncation add visible warnings without stopping the screening/refinement workflow. See [similarity-distribution.md](similarity-distribution.md). The current workflow uses policy 3.0.1: the global first 50 are guaranteed when available, with up to 100 returned representatives in adaptive mode and 200 total reference attempts. Query limits and the screening gate are unchanged.
+After parsing Mashpit, the workflow runs `analyze_similarity_distribution.py` to describe the returned scores and audit the versioned SNP selector. It writes a JSON summary and a rank–similarity plot, included in the report even with `--screen-only`. Errors or possible truncation add visible warnings without stopping the screening/refinement workflow. See [similarity-distribution.md](similarity-distribution.md). The current workflow uses policy 3.0.1: the global first 50 are guaranteed when available, with up to 100 returned representatives in adaptive mode and 200 total reference attempts. Query limits and the screening gate are unchanged.
 
-## Optional SNP resolution
+## Required SNP comparison for full analysis
 
-With `--snp-resolve`, once Mashpit returns a candidate, an additional stage selects selected returned representatives across clusters, downloads them from NCBI, and compares assemblies directly with the target using minimap2/paftools, or uses the legacy SKA path for reads. See [references/snp-resolution.md](snp-resolution.md). This stage is opt-in and its failure only downgrades `result.json` to a warning — it never turns an otherwise-successful Mash screen into a stopped one.
+By default, eligible Mashpit candidates are compared at SNP resolution. Assemblies use minimap2/paftools; the paired-read path retains SKA. `--screen-only` explicitly skips this stage; `--snp-resolve` remains a compatibility alias. A required comparison that fails or cannot run gives `INCOMPLETE` and exit code 2, with partial evidence retained. Valid but ambiguous comparisons remain unresolved without being mistaken for execution failure. Scientific thresholds and budgets are unchanged. See [snp-resolution.md](snp-resolution.md).
 
 With `--snp-expand` (workflow 1.9.0), refine in evidence-led focused rounds over the exact-release member pool with reserved rotating alternative coverage. Cleaned read pairs feed SKA2 directly when the input was reads. See [cluster-expansion.md](cluster-expansion.md) for resource limits, feedback, and stop states.

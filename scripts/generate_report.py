@@ -4,7 +4,7 @@
 Every fact in the report is a direct read of an already-computed field in
 result.json - no new computation, no invented labels. Intended for someone
 who does not want to read JSON: what organism was this screened against, what
-did Mashpit find, what did ska2's SNP distances say, and what should happen
+did Mashpit find, what did the SNP comparison show, and what should happen
 next.
 """
 
@@ -131,10 +131,12 @@ def _similarity_section(result: dict[str, Any]) -> list[str]:
 
 def _snp_section(result: dict[str, Any]) -> list[str]:
     snp = result.get("snp_resolution")
-    backend = (snp or {}).get("backend","ska")
-    lines = [f"## Step 3: Compared at SNP resolution ({backend})", ""]
+    backend = (snp or {}).get("backend")
+    label = f" ({backend})" if backend else ""
+    lines = [f"## Step 3: SNP comparison{label}", ""]
     if not snp:
-        lines.append("Not run for this screen (pass `--snp-resolve` to enable it).")
+        lines.append("Not requested: explicit screening-only mode." if result.get("analysis_mode") == "screen_only"
+                     else "Not run; no SNP-comparison result is available.")
         return lines
     expansion = snp.get("expansion", {})
     if expansion.get("enabled"):
@@ -405,8 +407,9 @@ def generate_report(result: dict[str, Any]) -> str:
         )
     if result.get("stop_reason"):
         lines.append("")
-        lines.append(f"**Screening stopped: {result['stop_reason']}**")
-        return "\n".join(lines) + "\n"
+        lines.append(f"**Analysis incomplete: {result['stop_reason']}**")
+        if result.get("status") != "INCOMPLETE":
+            return "\n".join(lines) + "\n"
     lines.append("")
     lines.extend(_mashpit_section(result))
     lines.append("")

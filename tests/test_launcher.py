@@ -34,6 +34,7 @@ class LauncherTests(unittest.TestCase):
             command = build_command(args, ROOT, "sha256:image", "image-commit")
         image_index = command.index("isoscout:local")
         self.assertTrue(all(option != "--volume" for option in command[image_index + 1:]))
+        self.assertIn("--snp-resolve", command[image_index + 1:])
         self.assertIn("--user", command[:image_index])
         self.assertIn("ISOSCOUT_IMAGE_ID=sha256:image", command)
         self.assertIn("ISOSCOUT_SOURCE_COMMIT=image-commit", command)

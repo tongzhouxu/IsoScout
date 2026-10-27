@@ -162,3 +162,36 @@ actual environment and source identities. The runner checks the selected aligner
 version and records hashes of all invoked tools, including paftools and k8.
 See [assembly-comparison.md](assembly-comparison.md) for local assemblies and
 reusable comparisons.
+
+## Native alignment tools
+
+For assembly input, full analysis needs minimap2 **2.31-r1302**, its matching
+`paftools.js`, k8, and NCBI datasets (unless every candidate assembly is supplied
+in a checksum-verified local manifest). The standalone installer supports Linux
+ARM64 and x86-64 without Docker or raw-read assembly tools:
+
+```bash
+sudo apt-get install -y curl unzip
+source /path/to/isoscout-venv/bin/activate
+bash scripts/install_native_alignment.sh "$VIRTUAL_ENV"
+```
+
+The installer checks the micromamba and datasets download hashes, installs
+minimap2 2.31 and k8 1.2 from conda-forge/Bioconda into an isolated native-tools
+environment, and checks tool startup. It uses micromamba 2.3.2-0 only during
+installation; no background process runs during benchmarking. Native tools are
+linked into the Python environment. It records versions and the resolved package
+URLs in `native-alignment/versions.txt` and `native-alignment/packages-explicit.txt`.
+Top-level tool versions are pinned; transitive dependencies are resolved at install
+time. Re-running the installer refreshes the same native-tools environment.
+It does not establish biological or Pi performance validation. Use a new output
+directory for the first full run and retain its logs:
+
+```bash
+isoscout screen --executor native /absolute/path/sample.fna \
+  --organism cronobacter --database-root /absolute/path/databases \
+  --comparison-workers 1 --output /absolute/path/results/full-pilot
+```
+
+Raw-read processing remains unsupported on Pi. For the lightweight screening
+benchmark only, explicitly use `--screen-only` and omit comparison options.

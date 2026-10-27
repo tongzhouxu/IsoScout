@@ -140,8 +140,7 @@ def build_command(
     command.extend([args.image, *container_inputs, "--database-root", "/databases", "--output", f"/results/{output.name}"])
     if args.organism:
         command.extend(["--organism", args.organism])
-    if args.snp_resolve:
-        command.append("--snp-resolve")
+    command.append("--screen-only" if args.screen_only else "--snp-resolve")
     if args.snp_expand:
         command.append("--snp-expand")
     for option in (
@@ -167,7 +166,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--database-root", default=os.environ.get("ISOSCOUT_DATABASE_ROOT", "~/.isoscout/databases"))
     parser.add_argument("--image", default=DEFAULT_IMAGE)
     parser.add_argument("--organism", choices=ORGANISMS)
-    parser.add_argument("--snp-resolve", action="store_true")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--screen-only", action="store_true", help="Run screening without SNP comparison.")
+    mode.add_argument("--snp-resolve", action="store_true", help="Compatibility alias for the default full analysis.")
     parser.add_argument("--snp-expand", action="store_true")
     parser.add_argument("--snp-selection-mode", choices=("adaptive", "all_returned"))
     parser.add_argument("--query-accession")
@@ -178,7 +179,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--assembly-comparison-policy")
     parser.add_argument("--comparison-workers", type=int)
     parser.add_argument("--print-command", action="store_true", help="Print the resolved Docker command without running it")
-    return parser.parse_args(argv)
+    args = parser.parse_args(argv)
+    if args.screen_only and any((args.snp_expand, args.snp_selection_mode, args.snp_backend,
+                                args.refinement_policy, args.assembly_manifest, args.comparison_cache,
+                                args.assembly_comparison_policy, args.comparison_workers is not None)):
+        parser.error("--screen-only cannot be combined with SNP-comparison options")
+    return args
 
 
 def main(argv: list[str] | None = None) -> int:

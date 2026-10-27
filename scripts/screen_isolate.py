@@ -48,6 +48,8 @@ def sample_name(path: Path) -> str:
 
 def summary_text(result: dict[str, Any]) -> str:
     lines = [f"Sample: {result['sample']}", f"Status: {result['status']}"]
+    if result.get("analysis_mode"):
+        lines.append("Analysis mode: " + result["analysis_mode"])
     if result.get("input_type"):
         lines.append(f"Input: {result['input_type']}")
     if result.get("organism"):
@@ -64,9 +66,10 @@ def summary_text(result: dict[str, Any]) -> str:
             f"Screening result: {match['screening_result']}",
             "Interpretation: This isolate is most similar to representatives associated with the candidate cluster.",
             "This screening result does not by itself establish outbreak relatedness.",
-            "Recommended next step: Run a validated high-resolution SNP comparison against representative isolates.",
         ])
     snp = result.get("snp_resolution")
+    if result.get("analysis_mode") == "screen_only":
+        lines.append("Screening-only result; no SNP-supported cluster assignment was attempted.")
     if snp and snp.get("ranked") and snp.get("nearest_snp_distance") is not None:
         lines.append(
             f"{snp.get('backend', 'ska2').upper()} comparison: minimum observed distance {snp['nearest_snp_distance']:.2f} SNPs; "
@@ -403,7 +406,7 @@ def run_snp_resolution(
 
 def screen(
     inputs: list[Path], output_dir: Path, database_root: Path,
-    organism: str | None = None, snp_resolve: bool = False, snp_expand: bool = False,
+    organism: str | None = None, snp_resolve: bool = True, snp_expand: bool = False,
     snp_selection_mode: str | None = None, query_accession: str | None = None,
     refinement_policy_path: Path | None = None,
     snp_backend: str | None = None, assembly_manifest: Path | None = None,
@@ -417,7 +420,8 @@ def screen(
     snp_resolve = snp_resolve or snp_expand or snp_selection_mode is not None
     database_metadata = None
     result: dict[str, Any] = {
-        "schema_version": "1.0.0",
+        "schema_version": "1.1.0",
+        "analysis_mode": "full" if snp_resolve else "screen_only",
         "sample": sample_name(inputs[0]),
         "status": "FAILED",
         "warnings": [],
@@ -520,33 +524,45 @@ def screen(
         )
         result["similarity_distribution"] = diagnostics
         result["warnings"].extend(diagnostics.get("warnings", []))
-        if snp_resolve and parsed.get("below_threshold"):
-            result["warnings"].append(
-                "SNP resolution skipped: Mashpit's top hit is below its own query threshold, "
-                "so there is no real candidate to resolve."
-            )
-        elif snp_resolve and parsed.get("best_candidate"):
-            try:
-                snp_outcome = run_snp_resolution(
-                    Path(mashpit_run["output_directory"]), assembly,
-                    parsed["best_candidate"]["cluster"], output_dir / "snp_resolution",
-                    database_metadata, snp_expand, query_reads, snp_selection_mode, query_accession,
-                    refinement_policy_path, snp_backend, assembly_manifest, comparison_cache, assembly_policy_path, comparison_workers,
-                )
-                result["snp_resolution"] = snp_outcome["snp_resolution"]
-                commands.extend(snp_outcome["commands"])
-                result["warnings"].extend(snp_outcome["snp_resolution"].get("warnings", []))
-                if snp_outcome["snp_resolution"].get("reason"):
-                    result["warnings"].append(snp_outcome["snp_resolution"]["reason"])
-            except (WorkflowError, OSError, ValueError) as error:
-                result["snp_resolution"] = {"status": "ERROR", "error": str(error)}
-                result["warnings"].append(f"SNP resolution failed: {error}")
+        if snp_resolve:
+            if parsed.get("below_threshold") or not parsed.get("best_candidate"):
+                result["snp_resolution"] = {
+                    "status": "SKIPPED", "reason": "No eligible Mashpit candidate for SNP comparison."
+                }
+            else:
+                try:
+                    snp_outcome = run_snp_resolution(
+                        Path(mashpit_run["output_directory"]), assembly,
+                        parsed["best_candidate"]["cluster"], output_dir / "snp_resolution",
+                        database_metadata, snp_expand, query_reads, snp_selection_mode, query_accession,
+                        refinement_policy_path, snp_backend, assembly_manifest, comparison_cache, assembly_policy_path, comparison_workers,
+                    )
+                    result["snp_resolution"] = snp_outcome["snp_resolution"]
+                    commands.extend(snp_outcome["commands"])
+                    result["warnings"].extend(snp_outcome["snp_resolution"].get("warnings", []))
+                    if snp_outcome["snp_resolution"].get("reason"):
+                        result["warnings"].append(snp_outcome["snp_resolution"]["reason"])
+                except (WorkflowError, OSError, ValueError) as error:
+                    result["snp_resolution"] = {"status": "ERROR", "error": str(error)}
+                    result["warnings"].append(f"SNP comparison failed: {error}")
         result["rep_designations"] = annotate_rep_designations(result, database_metadata)
         write_json(output_dir / "rep_designations.json", result["rep_designations"])
         if result["rep_designations"]["status"] == "UNREADABLE":
             result["warnings"].append("REP designations could not be read: " + result["rep_designations"]["error"])
         result["warnings"] = list(dict.fromkeys(result["warnings"]))
         result["status"] = "COMPLETED_WITH_WARNINGS" if result["warnings"] else "COMPLETED"
+        if snp_resolve:
+            snp = result["snp_resolution"]
+            failed_comparisons = any(row.get("status") == "ERROR" for row in snp.get("query_comparisons", []))
+            failed_round = any(row.get("status") == "FAILED" for row in snp.get("expansion", {}).get("rounds", []))
+            if (snp.get("status") not in {"COMPARED", "AMBIGUOUS", "RESOLVED"}
+                    or failed_comparisons or failed_round or snp.get("unavailable")):
+                result["status"] = "INCOMPLETE"
+                result["stop_reason"] = (
+                    "Required SNP comparison did not complete for the selected references. "
+                    + str(snp.get("error") or snp.get("reason") or snp.get("status")).rstrip(".")
+                    + ". Screening candidates and any partial SNP evidence are retained; inspect snp_resolution."
+                )
     except (WorkflowError, OSError, ValueError) as error:
         result["status"] = "STOPPED"
         result["stop_reason"] = str(error)
@@ -569,15 +585,9 @@ def main() -> int:
         choices=("salmonella", "ecoli_shigella", "listeria", "campylobacter", "cronobacter"),
         help="Known organism/database key. If omitted, local mlst auto-detects a PubMLST scheme.",
     )
-    parser.add_argument(
-        "--snp-resolve",
-        action="store_true",
-        help=(
-            "After a Mashpit candidate is found, download representative genomes from NCBI "
-            "and compare the target assembly with candidates using minimap2 (SKA for reads). This may reach "
-            "out to NCBI, unlike the rest of the screen, which stays fully local."
-        ),
-    )
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--screen-only", action="store_true", help="Explicitly run Mashpit screening without SNP comparison.")
+    mode.add_argument("--snp-resolve", action="store_true", help="Compatibility alias: SNP comparison is enabled by default.")
     parser.add_argument("--snp-expand", action="store_true", help="Enable SNP resolution plus bounded exploration of members from the pinned NCBI cluster release.")
     parser.add_argument("--snp-selection-mode", choices=("adaptive", "all_returned"), help="Representative selection mode; all_returned requires budget for every unique returned representative.")
     parser.add_argument("--query-accession", help="Known assembly accession of this query, excluded from SNP references.")
@@ -588,6 +598,10 @@ def main() -> int:
     parser.add_argument("--assembly-comparison-policy",help="Explicit assembly comparison policy JSON.")
     parser.add_argument("--comparison-workers",type=int,help="Concurrent single-thread target-to-candidate alignments (default 4).")
     args = parser.parse_args()
+    if args.screen_only and any((args.snp_expand, args.snp_selection_mode, args.snp_backend,
+                                args.refinement_policy, args.assembly_manifest, args.comparison_cache,
+                                args.assembly_comparison_policy, args.comparison_workers is not None)):
+        parser.error("--screen-only cannot be combined with SNP-comparison options")
     output_dir = Path(args.output).expanduser().resolve()
     if output_dir.exists():
         print(f"Refusing to overwrite existing output directory: {output_dir}")
@@ -601,7 +615,7 @@ def main() -> int:
         output_dir,
         database_root,
         args.organism,
-        args.snp_resolve,
+        not args.screen_only,
         args.snp_expand,
         args.snp_selection_mode,
         args.query_accession,

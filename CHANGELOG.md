@@ -4,6 +4,8 @@ All notable changes to this project are documented here. Format loosely follows 
 
 ## [Unreleased]
 
+- Workflow 1.14.0 / CLI 1.5.0.dev1 makes SNP comparison the default for CLI, source and skill runs. `--screen-only` explicitly requests candidate screening; `--snp-resolve` remains a compatibility alias. Assembly comparisons default to minimap2. Full runs without completed required comparisons return `INCOMPLETE` and a nonzero exit status, preserving partial evidence. Reports no longer label unexecuted comparisons as SKA. Scientific thresholds and selection budgets are unchanged.
+
 - Added the installable `isoscout screen` CLI (package `1.5.0.dev0`), using the existing Docker launcher by default and the same bundled workflow through explicit native execution. Wheels include the scientific policies without duplicating their source. CLI version and executor are retained in provenance; existing script entry points remain supported. The README keeps skill-assisted use first and adds command-line installation and native dependency guidance. Scientific workflow/policy versions and parameters are unchanged.
 
 - The screen reports CDC REP designations from the `REP_CLUSTER` table in [`databases-rep-2026-10`](https://github.com/tongzhouxu/IsoScout/releases/tag/databases-rep-2026-10) packages. It labels the final called cluster and Mashpit's displayed candidates by exact PDS accession, reports a missing table or row as no REP label in the database, and states that a match does not confirm outbreak-strain membership. Results from `databases-v2` packages are otherwise unchanged.

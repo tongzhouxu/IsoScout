@@ -95,7 +95,7 @@ class SimilarityDiagnosticsTests(unittest.TestCase):
         fake_run = {"command": ["mashpit"], "database": self.database, "output_directory": str(self.source)}
         qc = {"status": "PASS", "metrics": {"total_length": 4}}
         with patch("screen_isolate.run_mashpit", return_value=fake_run), patch("screen_isolate.assess", return_value=qc), patch("screen_isolate.collect", return_value={}) as provenance:
-            result = screen([assembly], self.root / "screen", self.root, organism="listeria")
+            result = screen([assembly], self.root / "screen", self.root, organism="listeria", snp_resolve=False)
         self.assertEqual(result["status"], "COMPLETED_WITH_WARNINGS")
         self.assertEqual(result["similarity_distribution"]["returned_genomes"], 120)
         self.assertNotIn("snp_resolution", result)
@@ -124,7 +124,7 @@ class SimilarityDiagnosticsTests(unittest.TestCase):
         self.database["mashpit_database_settings"] = {}
         fake_run = {"command": ["mashpit"], "database": self.database, "output_directory": str(self.source)}
         qc = {"status": "PASS", "metrics": {"total_length": 4}}
-        snp = {"snp_resolution": {"status": "SKIPPED", "reason": "Test fixture"}, "commands": []}
+        snp = {"snp_resolution": {"status": "COMPARED"}, "commands": []}
         with patch("screen_isolate.run_mashpit", return_value=fake_run), patch("screen_isolate.assess", return_value=qc), patch("screen_isolate.collect", return_value={}), patch("screen_isolate.run_snp_resolution", return_value=snp) as refine:
             result = screen([assembly], self.root / "screen", self.root, organism="listeria", snp_resolve=True)
         self.assertEqual(result["status"], "COMPLETED_WITH_WARNINGS")

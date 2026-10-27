@@ -1,6 +1,6 @@
 ---
 name: isoscout
-description: Screen a bacterial isolate assembly or paired-end Illumina reads against supported NCBI Pathogen Detection cluster databases with IsoScout. Use for local, reproducible Mashpit screening of Salmonella, E. coli/Shigella, Listeria, Campylobacter, or Cronobacter, including input validation, local MLST routing, result interpretation, and optional candidate refinement.
+description: Screen a bacterial isolate assembly or paired-end Illumina reads against supported NCBI Pathogen Detection cluster databases with IsoScout. Use for local, reproducible Mashpit screening of Salmonella, E. coli/Shigella, Listeria, Campylobacter, or Cronobacter, including input validation, local MLST routing, result interpretation, and SNP comparison.
 ---
 
 # IsoScout
@@ -20,18 +20,18 @@ Run the bundled workflow; do not assemble bioinformatics commands or choose new 
 
    Use a new output directory. `ORGANISM_KEY` is one of `salmonella`, `ecoli_shigella`, `listeria`, `campylobacter`, or `cronobacter`. Omit it only when the organism is unknown; local MLST then routes among those five supported databases. This is not general species identification. The routed database must already be installed.
    If installed in another environment, use that installation's absolute CLI path. For a source checkout without the CLI installed, `python3 <skill-directory>/scripts/launch_isoscout.py` remains an equivalent entry point. The CLI defaults to Docker. Use `--executor native` only for a deliberately configured and verified native environment; never switch executors to work around a failed run.
-4. Read `OUTPUT_DIR/result.json`. Treat `status`, `stop_reason`, and `user_summary` as authoritative. Never infer a result from incomplete logs.
+4. Read `OUTPUT_DIR/result.json`. A full run marked `INCOMPLETE` has not completed the required SNP stage; explain the cause and retain partial evidence without treating the Mashpit candidate as a SNP-supported call. Treat `status`, `stop_reason`, and `user_summary` as authoritative. Never infer a result from incomplete logs.
 5. Give the concise result first. Explain the evidence, alternatives or ties, what references were examined or left unexamined, material limitations, and the next appropriate validation step. Link `report.md`, `result.json`, and `provenance.json`.
 
 ## CDC REP designations
 
 Databases from the [`databases-rep-2026-10`](https://github.com/tongzhouxu/IsoScout/releases/tag/databases-rep-2026-10) release carry a `REP_CLUSTER` table. When it is present, `result.json` field `rep_designations` and the report give the REP designation and source URL for the final called cluster (the SNP-resolved cluster, or Mashpit's top candidate when refinement did not run) and for Mashpit's displayed candidates, matched by exact PDS accession. Report a labelled cluster as "the called NCBI SNP cluster is linked to REP strain X", never as confirmation that the isolate belongs to the outbreak strain. Report a missing table or row (`NO_LABEL`, `TABLE_ABSENT`) as "no REP label in this database", never as "not a REP strain". `UNREADABLE` means no REP status is known.
 
-The default screen uses Mashpit only and does not download candidate genomes. It writes the plain-language `report.md` on every run. It also writes score-distribution diagnostics when Mashpit returns a valid query result; report any return-limit or omitted-near-tie warnings.
+The default run performs Mashpit screening and SNP comparison. It can download public candidate assemblies from NCBI; the query sequence stays local. Use `--screen-only` only when the user requests screening alone; never use it to bypass a failed full analysis. It writes the plain-language `report.md` on every run. It also writes score-distribution diagnostics when Mashpit returns a valid query result; report any return-limit or omitted-near-tie warnings.
 
-## Optional refinement
+## SNP comparison and candidate expansion
 
-Use `--snp-resolve` only when the user requests candidate refinement or authorizes its NCBI genome downloads. It compares the target with selected returned representatives. Read [references/snp-resolution.md](references/snp-resolution.md) before interpreting it, preserve all ties and failures, and state whether the refined evidence agrees with the Mashpit candidate.
+SNP comparison runs by default and compares the target with selected returned representatives. Assembly input uses minimap2; the legacy paired-read path uses SKA2. `--snp-resolve` is a compatibility alias, not a required opt-in. Read [references/snp-resolution.md](references/snp-resolution.md) before interpreting it, preserve all ties and failures, and state whether the refined evidence agrees with the Mashpit candidate.
 
 Use `--snp-expand` only when the user explicitly requests bounded exploration of additional members from the selected clusters. Read [references/cluster-expansion.md](references/cluster-expansion.md). Report examined and unexamined coverage, allocation and stop reasons, unavailable references, and all equally supported results. Sampled stability, cluster concordance, or zero observed SNPs does not establish the globally nearest genome or strain identity.
 

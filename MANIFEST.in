@@ -5,3 +5,4 @@ recursive-include references *.md
 recursive-include container Dockerfile *.yml *.lock
 recursive-include workflows *.json
 recursive-include tests *.py
+recursive-include scripts *.sh

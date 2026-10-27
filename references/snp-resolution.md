@@ -1,6 +1,6 @@
 # SNP resolution: selection policy 3.0.1
 
-Optional refinement using target-to-candidate assembly alignments (minimap2 by default), or legacy SKA2 for paired reads. See [assembly-comparison.md](assembly-comparison.md) for the assembly method, local inputs, caching and criteria. Governed by `config/snp-resolution-policy.json` (versioned resource policy) and the `snp_resolution` block of `config/workflow.json` (fixed ska2 command profile). Enable with `--snp-resolve`.
+Default SNP comparison using target-to-candidate assembly alignments (minimap2 by default), or legacy SKA2 for paired reads. See [assembly-comparison.md](assembly-comparison.md) for the assembly method, local inputs, caching and criteria. Governed by `config/snp-resolution-policy.json` (versioned resource policy) and the `snp_resolution` block of `config/workflow.json` (fixed ska2 command profile). Runs automatically; use `--screen-only` explicitly to omit SNP comparison.
 
 ## Why this exists
 
@@ -8,11 +8,11 @@ Mashpit's MinHash similarity is a coarse, sketch-resolution screen. A single una
 
 ## When it runs
 
-Whenever `--snp-resolve` is set and Mashpit returned a candidate (`mashpit_result.best_candidate` is present) — regardless of whether that candidate was unambiguous. This is deliberate: an unambiguous Mash hit can still be many SNPs away from its representatives, so the refinement step is not limited to the ambiguous case.
+By default, unless `--screen-only` is requested, when Mashpit returned an eligible candidate (`mashpit_result.best_candidate` is present) — regardless of whether that candidate was unambiguous. This is deliberate: an unambiguous Mash hit can still be many SNPs away from its representatives, so the refinement step is not limited to the ambiguous case.
 
 ## Network dependency
 
-This step can use checksum-verified local assemblies through `--assembly-manifest`. Missing candidates require public downloads. A Mashpit database only retains sourmash signatures, not the representative assemblies (they are sketched and discarded during `mashpit build`), so resolving SNPs requires re-downloading selected representative genomes from NCBI via the pinned `datasets` CLI. This is why the step is opt-in rather than automatic: default screens keep sensitive query data fully local, and `--snp-resolve` is an explicit choice to reach out to NCBI for public reference genomes (the query sequence itself is never uploaded).
+This step can use checksum-verified local assemblies through `--assembly-manifest`. Missing candidates require public downloads. A Mashpit database only retains sourmash signatures, not the representative assemblies (they are sketched and discarded during `mashpit build`), so resolving SNPs requires re-downloading selected representative genomes from NCBI via the pinned `datasets` CLI. The full workflow may therefore contact NCBI for public reference genomes. The query sequence itself is never uploaded. Explicit `--screen-only` mode performs no candidate downloads.
 
 ## Target selection and budgets
 
@@ -50,7 +50,7 @@ These are separate recorded computational budgets, not biological cutoffs.
    partial set. With 200 returned references and the default 200-attempt
    ceiling, it attempts all 200, leaving no member-expansion capacity.
 
-`--snp-resolve` uses adaptive mode by default. `--snp-expand` additionally
+The default full analysis uses adaptive selection. `--snp-expand` additionally
 explores exact-release members of clusters represented in the selected returned
 set. The expansion profile is versioned separately from representative selection;
 `--refinement-policy` can select another explicit, versioned policy file without
@@ -113,10 +113,10 @@ tested by the selected backend. No stable within-cluster result rules out an unt
 
 `render_snp_tree.py` renders `newick_tree` to `snp_resolution/tree.png` with `QUERY` highlighted in red and bold (via `phytreeviz`, already pulled in transitively by the pinned mashpit commit's own dependencies — no new container pin needed). Rendering is best-effort: a failure only sets `tree_image.status` to `FAIL` with the error message, it never fails SNP resolution or the underlying Mash screen. `generate_report.py` embeds this image in `report.md` when available, falling back to the raw Newick text otherwise.
 
-`generate_report.py` renders all of this into `report.md`, written alongside `result.json` on every run (not just `--snp-resolve` ones): organism determination, the Mashpit candidate table, the ska2 cluster/genome tables and confidence statement, and the Newick tree, in plain language for a reader who doesn't want to open JSON.
+`generate_report.py` renders all of this into `report.md`, written alongside `result.json` on every run (including `--screen-only` runs): organism determination, the Mashpit candidate table, the selected backend's cluster/genome results and confidence statement, and the Newick tree, in plain language for a reader who doesn't want to open JSON.
 
 ## Limitations
 
 - ska2 pairwise SNP distance is itself a screening refinement, not a validated outbreak-confirmation pipeline (unlike, e.g., CFSAN SNP Pipeline or an accredited cgMLST scheme). Always recommend a validated, organism-appropriate high-resolution comparison for actual outbreak confirmation, exactly as for the Mash result.
-- `--snp-resolve` compares selected representatives. `--snp-expand` can add available members of selected clusters from the exact release, subject to explicit budgets and stopping rules. Neither mode searches all public genomes or guarantees the nearest isolate globally.
+- The default full analysis compares selected representatives. `--snp-expand` can add available members of selected clusters from the exact release, subject to explicit budgets and stopping rules. Neither mode searches all public genomes or guarantees the nearest isolate globally.
 - A failed or partial download (fewer than two usable genomes, including the query) skips SNP resolution with a warning; it does not fail the underlying Mash screen, which remains authoritative on its own.

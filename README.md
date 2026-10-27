@@ -2,7 +2,7 @@
 
 [![License: GPL v2](https://img.shields.io/badge/License-GPL_v2-blue.svg)](LICENSE)
 
-IsoScout screens a bacterial isolate against local [Mashpit](https://github.com/tongzhouxu/mashpit) databases of NCBI Pathogen Detection SNP clusters, with optional higher-resolution comparisons against candidate assemblies.
+IsoScout screens a bacterial isolate against local [Mashpit](https://github.com/tongzhouxu/mashpit) databases of NCBI Pathogen Detection SNP clusters, and compares candidate assemblies at SNP resolution by default.
 
 Its **AI-agent skill** helps you set up an analysis, run it from a plain-language request, and understand the evidence and limitations in the report. The **command-line interface (CLI)** exposes the same workflow for direct use and automation. Both use the same versioned scientific code and policies; the assistant does not replace the analysis or decide its thresholds.
 
@@ -74,7 +74,7 @@ and limitations. Distinguish completed analysis from failed or
 unperformed stages. Keep the structured results and provenance.
 ```
 
-The assistant should preserve QC stops and unresolved findings, explain which references were examined, and avoid presenting a screening result as outbreak confirmation. You can discuss [optional refinement](#optional-refinement) after reviewing the screen.
+The assistant should preserve QC stops and unresolved findings, explain which references were examined, and avoid presenting a screening result as outbreak confirmation. SNP comparison is part of the default analysis; only an explicit `--screen-only` request skips it.
 
 The analysis runs locally. The screening workflow does not upload the query genome, but your chosen assistant may send conversation or tool content to its provider. Reference downloads also require network access when assemblies are not supplied locally.
 
@@ -171,11 +171,11 @@ Native mode runs the bundled Python workflow using tools already installed on `P
 
 | Requested stage | Tools needed in addition to the IsoScout CLI |
 | --- | --- |
-| Assembly screening with a known organism | Compatible Mashpit and its Python dependencies |
+| Screening only (`--screen-only`), with a known organism | Compatible Mashpit and its Python dependencies |
 | Diagnostic plots | Matplotlib in the Python environment running IsoScout |
 | Automatic organism routing | `mlst` and its bundled schemes |
 | Paired-read processing, on a workstation/server | `fastp`, SKESA and QUAST |
-| Assembly refinement | Pinned minimap2, `paftools.js`, `k8`; NCBI `datasets` if references are not supplied locally |
+| Default assembly SNP comparison | Pinned minimap2, `paftools.js`, `k8`; NCBI `datasets` if references are not supplied locally |
 | Legacy paired-read refinement | SKA2 |
 
 Check the environment before running an analysis:
@@ -200,20 +200,27 @@ Native installations need their own verification. Neither installing the CLI nor
 
 ### Raspberry Pi: assemblies only
 
+See the [full-analysis Pi pilot instructions](references/pi-testing.md) for installation, execution, and interpretation.
+
 **Raw-read processing is not supported on Raspberry Pi in the current IsoScout setup. Do not supply paired FASTQ files on the Pi.** The configured read workflow uses SKESA with a 16-GB memory budget, exceeding the RAM of the 8-GB Pi 4, and the complete ARM64 read-processing stack has not been validated. Assemble and QC reads on a workstation or server, then transfer the resulting FASTA assembly to the Pi.
 
-The intended Pi use is **native screening of an existing assembly**, with the organism supplied explicitly and one database installed at a time:
+The Pi supports an explicit **screening-only test** and an experimental **full assembly analysis**, with the organism supplied explicitly and one database installed at a time:
 
 - Use a 64-bit ARM OS and Python 3.11, with ARM-compatible Mashpit dependencies installed separately. Some dependencies may require source builds.
-- Use `--executor native` as in the assembly example above. The current Docker image targets AMD64.
+- Use `--executor native --screen-only` for lightweight screening. The current Docker image targets AMD64.
 - Copy the complete organism database folder, including `database.json`; allow room for its extracted size and output files.
-- Keep SNP refinement and member expansion on a workstation/server for this deployment. Their full Pi execution and performance have not been validated.
+- For a full assembly run, omit `--screen-only`, install minimap2 2.31, paftools.js, k8 and NCBI datasets, and start with `--comparison-workers 1`. See the [native alignment installer](references/setup.md#native-alignment-tools). Full Pi execution and performance remain unvalidated; start with one query before a batch.
 
-**Pi validation is still pending:** the CLI is pure Python and its Python requirement is compatible with this setup, but a complete assembly-screening run still needs verification on the device. The raw-read limitation is deployment guidance; the CLI does not currently detect a Pi and reject FASTQ automatically.
+**Full Pi validation is still pending:** installing dependencies does not establish successful SNP comparison on the device. The raw-read limitation is deployment guidance; the CLI does not currently detect a Pi and reject FASTQ automatically.
+
+The default full workflow may download public candidate assemblies from NCBI; the query sequence is not uploaded. Use a checksum-verified `--assembly-manifest` to supply references locally. Installing the Python package alone does not install the native alignment tools.
 
 ## Reading the result
 
-Both interfaces and both runtimes produce the same primary files:
+Both interfaces and both runtimes produce the same primary files. `analysis_mode` is `full` or `screen_only`. A full run with missing, failed or insufficient required SNP comparisons returns `INCOMPLETE` and exit code 2, while retaining screening and partial comparison evidence. Valid comparisons can remain ambiguous; completion does not imply a unique cluster assignment. Input/QC failures remain `STOPPED`.
+
+Use `--screen-only` only when screening candidates are the intended endpoint. It cannot be combined with SNP-comparison options. `--snp-resolve` is retained as a compatibility alias for the default behavior. Rebuild the Docker image from this checkout after updating; installing a new CLI does not update an existing image.
+
 
 | File | What to use it for |
 | --- | --- |
@@ -223,10 +230,10 @@ Both interfaces and both runtimes produce the same primary files:
 
 Exit status zero means the workflow completed, possibly with warnings. A QC stop or required-stage failure returns nonzero. Optional refinement failure can leave a successful screen with warnings, so check the requested stage's result as well as the exit code. Docker runs additionally record the actual image identity. Keep the full output directory for review and reproducibility.
 
-## Optional refinement
+## SNP comparison and candidate expansion
 
 
-Add `--snp-resolve` to compare the target assembly directly with selected
+By default, IsoScout compares the target assembly directly with selected
 candidate assemblies using minimap2 and its upstream paftools variant caller.
 `--assembly-manifest` supplies local accession/path/sha256 records; only missing
 candidates are downloaded. `--comparison-cache` reuses completed pairs during
@@ -290,7 +297,7 @@ Full ranked scores, cluster composition, source checksums, and cutoff flags are 
 - [references/database-routing.md](references/database-routing.md) — organism routing rules
 - [references/qc-policy.md](references/qc-policy.md) — QC thresholds and their evidence basis
 - [references/mashpit-interpretation.md](references/mashpit-interpretation.md) — how a Mashpit result is labeled
-- [references/snp-resolution.md](references/snp-resolution.md) — the optional SNP-refinement step
+- [references/snp-resolution.md](references/snp-resolution.md) — the default SNP-comparison stage
 - [references/cluster-expansion.md](references/cluster-expansion.md) — focused member expansion and resource limits
 - [references/verification.md](references/verification.md) — software test commands and interpretation limits
 - [references/limitations.md](references/limitations.md) — scope and scientific limitations

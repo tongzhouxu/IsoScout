@@ -97,7 +97,7 @@ class InstalledCliTests(unittest.TestCase):
         result = self.run_cli(
             "screen", str(sample), "--output", str(self.work / "results"),
             "--database-root", str(databases), "--organism", "salmonella",
-            "--image", "test:local", "--snp-resolve", "--comparison-workers", "1",
+            "--image", "test:local", "--comparison-workers", "1",
         )
         self.assertEqual(result.returncode, 17, result.stderr)
         command = json.loads(capture.read_text())

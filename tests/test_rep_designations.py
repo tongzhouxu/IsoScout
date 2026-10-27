@@ -144,7 +144,7 @@ class ScreenIntegrationTests(unittest.TestCase):
                 patch("screen_isolate.assess", return_value=qc), \
                 patch("screen_isolate.collect", return_value={}), \
                 patch("analyze_similarity_distribution.render_plot", return_value={"status": "SKIPPED"}):
-            screen([assembly], root / "screen", root, organism="salmonella")
+            screen([assembly], root / "screen", root, organism="salmonella", snp_resolve=False)
         return (json.loads((root / "screen" / "result.json").read_text()),
                 (root / "screen" / "report.md").read_text())
 
