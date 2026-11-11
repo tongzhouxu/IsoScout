@@ -173,7 +173,7 @@ def _snp_section(result: dict[str, Any]) -> list[str]:
         lines.extend(["", "The allocation audit records every requested accession, lane, cursor, and rationale in `snp_resolution/expansion.json`.", ""])
     query_input = snp.get("query_input", {})
     if query_input:
-        lines.extend(["Target input: **" + ("cleaned paired-end reads" if query_input["type"] == "paired_reads" else "assembly") + "**.", ""])
+        lines.extend(["Target input: **" + ("assembly generated from paired-end reads" if result.get("input_type") == "illumina_paired_fastq" else "assembly") + "**.", ""])
     status = snp.get("status")
     if snp.get("selection") or snp.get("decisions"):
         lines.extend(["[Reference selection and inclusion/exclusion reasons](snp_resolution/targets.json)", ""])
@@ -276,68 +276,7 @@ def _snp_section(result: dict[str, Any]) -> list[str]:
                       "A target-only comparison does not define a phylogenetic tree."])
         return lines
 
-    lines.append(
-        "SKA2 counts differences in comparable split-kmer contexts. Ranking includes only references "
-        "that pass the configured shared-kmer and missingness checks. These experimental comparability "
-        "checks are not strain-assignment thresholds."
-    )
-    lines.append("")
-    lines.append("**By cluster, closest to farthest:**")
-    lines.append("")
-    lines.append("| Cluster | Genomes compared | Closest match (SNPs) | Typical distance (SNPs) | Farthest (SNPs) |")
-    lines.append("|---|---|---|---|---|")
-    for row in snp.get("cluster_summary", []):
-        lines.append(
-            f"| {row['cluster']} | {row['genomes_compared']} | {row['min_snp_distance']:.2f} | "
-            f"{row['median_snp_distance']:.2f} | {row['max_snp_distance']:.2f} |"
-        )
-
-    ranked = snp.get("ranked", [])
-    lines.append("")
-    lines.append(f"**{min(TOP_N_GENOMES, len(ranked))} closest individual genomes** "
-                 f"(out of {len(ranked)} qualifying references):")
-    lines.append("")
-    lines.append("| Genome | Cluster | SNP distance |")
-    lines.append("|---|---|---|")
-    for item in ranked[:TOP_N_GENOMES]:
-        lines.append(f"| {item['sample']} | {item['cluster']} | {item['snp_distance']:.2f} |")
-    if len(ranked) > TOP_N_GENOMES:
-        lines.append("")
-        lines.append(
-            f"({len(ranked) - TOP_N_GENOMES} more in `snp_resolution/interpretation.json` under `ranked`.)"
-        )
-
-    confidence = snp.get("confidence", {})
-    lines.append("")
-    lines.append(f"**Interpretation:** {confidence.get('statement', 'No comparison statement available.')}")
-    if snp.get("nearest_samples"):
-        lines.append("All equally nearest qualifying references: " + ", ".join(snp["nearest_samples"]) + ".")
-    lines.append("A stable result within sampled clusters does not rule out unexamined returned clusters or members.")
-
-    lines.append("")
-    lines.append(
-        "**Exploratory SNP-distance tree** (built from qualifying SKA2 comparisons; your query highlighted):"
-    )
-    lines.append("")
-    tree_image = snp.get("tree_image") or {}
-    if tree_image.get("status") == "PASS":
-        lines.append("![SNP tree with query highlighted](snp_resolution/tree.png)")
-    else:
-        lines.append(
-            "(Image rendering "
-            + ("was skipped: " + tree_image.get("reason", "") if tree_image.get("status") == "SKIPPED"
-               else "failed: " + tree_image.get("error", "unknown error"))
-            + " - the Newick text below can still be pasted into a tree viewer such as "
-            "[iTOL](https://itol.embl.de/) or FigTree.)"
-        )
-    lines.append("")
-    lines.append(
-        "Newick text (also saved as `snp_resolution/interpretation.json`'s `newick_tree` field):"
-    )
-    lines.append("")
-    lines.append("```")
-    lines.append(snp.get("newick_tree") or "(tree unavailable)")
-    lines.append("```")
+    lines.append("No supported assembly-comparison backend was recorded.")
     return lines
 
 

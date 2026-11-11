@@ -15,6 +15,7 @@ from generate_report import generate_report
 from screen_isolate import run_snp_resolution
 from select_snp_targets import select_targets
 from site_fixture import MashpitFixture
+from comparison_fixture import comparison_result
 
 
 class AdaptiveSelectionTests(unittest.TestCase):
@@ -86,11 +87,11 @@ class AdaptiveSelectionTests(unittest.TestCase):
         accessions = [row["accession"] for row in preview["targets"]]
         self.assertEqual(set(accessions), {row["accession"] for row in diagnostics["ranked"] if row["selected_by_current_policy"]})
         fetch = {"commands": [], "verified": {acc: f"/tmp/{acc}.fa" for acc in accessions[:-1]}, "unavailable": accessions[-1:]}
-        interpretation = {"status": "COMPARED", "ranked": [{"sample": accessions[0], "cluster": "C1", "snp_distance": 2.}], "excluded_comparisons": [], "warnings": []}
-        with patch("screen_isolate.fetch_genomes", return_value=fetch) as download, patch("screen_isolate.run_ska", return_value={"commands": [], "distances": []}) as ska, patch("screen_isolate.interpret_snp_resolution", return_value=interpretation), patch("screen_isolate.render_from_interpretation", return_value={"status": "SKIPPED"}):
-            actual = run_snp_resolution(self.case.source, self.case.root / "query.fa", "C1", self.case.root / "snp", self.case.database, snp_backend="ska")
+        interpretation = {"status": "COMPARED", "ranked": [{"sample": accessions[0], "cluster": "C1", "snp_distance": 2., "target_aligned_fraction": 1., "candidate_aligned_fraction": 1.}], "excluded_comparisons": [], "warnings": []}
+        with patch("screen_isolate.fetch_genomes", return_value=fetch) as download, patch("screen_isolate.run_minimap", return_value=comparison_result()) as compare, patch("screen_isolate.interpret_assembly_comparison", return_value=interpretation), patch("plot_assembly_comparison.render", return_value={"status": "SKIPPED"}):
+            actual = run_snp_resolution(self.case.source, self.case.root / "query.fa", "C1", self.case.root / "snp", self.case.database, snp_backend="minimap2")
         self.assertEqual(download.call_args.args[0], accessions)
-        self.assertEqual(set(ska.call_args.args[0]), {"QUERY", *accessions[:-1]})
+        self.assertEqual(set(compare.call_args.args[0]), {"QUERY", *accessions[:-1]})
         self.assertEqual(load_json(self.case.root / "snp" / "targets.json"), preview)
         coverage = actual["snp_resolution"]["coverage"]
         self.assertEqual(coverage["reference_downloads_unavailable"], accessions[-1:])
@@ -109,8 +110,8 @@ class AdaptiveSelectionTests(unittest.TestCase):
         wanted = [row["accession"] for row in preview["targets"]]
         fetch = {"commands": [], "verified": {acc: f"/tmp/{acc}.fa" for acc in wanted}, "unavailable": []}
         interpretation = {"status": "COMPARED", "ranked": [], "excluded_comparisons": [], "warnings": []}
-        with patch("screen_isolate.fetch_genomes", return_value=fetch) as download, patch("screen_isolate.run_ska", return_value={"commands": [], "distances": []}), patch("screen_isolate.interpret_snp_resolution", return_value=interpretation), patch("screen_isolate.render_from_interpretation", return_value={"status": "SKIPPED"}):
-            actual = run_snp_resolution(self.case.source, self.case.root / "query.fa", "C1", self.case.root / "snp", self.case.database, snp_backend="ska", selection_mode="all_returned")
+        with patch("screen_isolate.fetch_genomes", return_value=fetch) as download, patch("screen_isolate.run_minimap", return_value=comparison_result()), patch("screen_isolate.interpret_assembly_comparison", return_value=interpretation), patch("plot_assembly_comparison.render", return_value={"status": "SKIPPED"}):
+            actual = run_snp_resolution(self.case.source, self.case.root / "query.fa", "C1", self.case.root / "snp", self.case.database, snp_backend="minimap2", selection_mode="all_returned")
         self.assertEqual(download.call_args.args[0], wanted)
         self.assertEqual(len(wanted), 200)
         self.assertEqual(actual["snp_resolution"]["coverage"]["returned_unexamined"], [])

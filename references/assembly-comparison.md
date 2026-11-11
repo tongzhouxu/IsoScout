@@ -1,5 +1,9 @@
 # Target-to-candidate assembly comparison
 
+Both supplied assemblies and QC-checked SKESA assemblies generated from paired
+reads enter this comparison stage. The original reads remain assembly inputs;
+SNP evidence and checksums refer to the generated assembly.
+
 Assembly refinement defaults to minimap2 2.31 (`2.31-r1302`) with its distributed
 `paftools.js` and k8 1.2. MUMmer4 4.0.0 is an explicit alternative. No assembly
 backend calculates candidate-to-candidate distances or constructs a tree.
@@ -63,7 +67,7 @@ The MUMmer alternative uses `nucmer --maxmatch`, one-to-one `delta-filter -1`,
 `show-coords -rclTH` and `show-snps -rlTHC`. Its policy is
 `config/mummer-comparison-policy.json`. It counts ACGT substitutions in unique
 mappings and reports alignment-interval coverage and indel bases. Its distances
-need not equal minimap2, SKA or another filtered SNP pipeline.
+need not equal minimap2 or another filtered SNP pipeline.
 
 ## Common finalist regions and bounded verification
 

@@ -72,7 +72,7 @@ class AnalysisModeTests(unittest.TestCase):
         self.assertIn('Not run', '\n'.join(_snp_section({'analysis_mode':'full'})))
         screen_report='\n'.join(_snp_section({'analysis_mode':'screen_only'}))
         self.assertIn('screening-only',screen_report)
-        self.assertNotIn('ska',screen_report)
+        self.assertNotIn('SNP-distance tree', screen_report)
         report = generate_report({'sample':'test', 'status':'INCOMPLETE',
                                   'analysis_mode':'full', 'stop_reason':'Missing tool',
                                   'snp_resolution':{'status':'ERROR','error':'Missing tool'}})

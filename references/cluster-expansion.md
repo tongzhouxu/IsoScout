@@ -37,7 +37,7 @@ without members, are recorded. Membership provenance includes URLs, the release,
 retrieval timestamp when applicable, sizes, and SHA-256 checksums. Retrieved query/reference files
 also have checksums in the final interpretation.
 
-## Focused, bounded rounds (policy 2.0.0)
+## Focused, bounded rounds (policy 2.1.0)
 
 The initial representative selector remains policy 3.0.1: it includes the
 global top 50 unique nonself returned references, then gives other returned
@@ -95,44 +95,22 @@ genome was found.
 ## Explicit policy files
 
 `--refinement-policy PATH` can select another versioned policy file for a
-screen. Its expansion and comparability settings are applied together. The
+screen. Its expansion settings govern allocation and stopping; comparability settings come from the selected assembly-comparison policy. The
 selected file's path, version, content, and SHA-256 are recorded in the
 expansion audit and provenance. The checked-in default keeps the limits above;
 any different resource ceiling must be stated in the supplied policy file.
 
-## Comparability and ties
-
-The default experimental comparability checks require at least 100,000 shared
-split-kmer contexts and SKA2's mismatch proportion no greater than 0.10. These
-settings are recorded and versioned; they are not organism-validated biological
-or strain-assignment cutoffs. SKA2's mismatch proportion measures missing
-split-kmer contexts, not nucleotide mismatch rate or ANI. See the pinned
-[SKA2 implementation](https://github.com/bacpop/ska.rust/blob/v0.5.1/src/merge_ska_array.rs).
-
-Failed comparisons remain in `excluded_comparisons` with their reasons but cannot win nearest-neighbor
-ranking. No qualifying comparison yields `INSUFFICIENT_DATA`. A unique nearest
-reference yields `COMPARED`; equally nearest references yield `AMBIGUOUS`, with
-all nearest accessions and clusters retained. A cross-cluster tie has no singular
-nearest cluster. Zero observed SNPs does not establish whole-genome identity.
-Trees require a complete matrix of qualifying comparisons among included tips.
-
 ## Read input
 
-For paired-end input, fastp's cleaned R1/R2 files are now used directly for SKA2
-refinement, alongside downloaded reference assemblies. The fixed profile uses
-`--min-count 3 --min-qual 20 --qual-filter strict`; these are starting error-filter
-settings requiring real-data validation. The pinned [SKA2 read-input contract](https://docs.rs/ska/0.5.1/ska/#read-files)
-requires two FASTQ paths on the same sample's file-list row. Single FASTQ paths
-are rejected to avoid silently treating reads as assemblies.
-
-Mashpit and MLST routing still use the SKESA assembly. Thus users can start from
-reads, and the fine-resolution comparison uses reads directly, but the whole
-screen is not assembly-free. Assembly failure still stops the initial screen.
+Paired-end inputs pass through fastp and SKESA. After assembly QC, both Mashpit
+screening and SNP comparison use that generated assembly. SNP comparison defaults
+to minimap2/paftools, exactly as for a supplied assembly. Cleaned FASTQ files are
+assembly inputs, not SNP-comparison inputs. Assembly failure stops the screen.
 
 ## Assembly backend
 
 Assembly inputs default to cached minimap2/paftools target-to-candidate
-comparisons. The split-kmer criteria above apply only to SKA. Assembly coverage,
+comparisons for both supplied and generated assemblies. Assembly coverage,
 variant rules, and alternative MUMmer settings are documented in
 [assembly-comparison.md](assembly-comparison.md). New batches reuse previous
 alignments; expansion does not require a pairwise matrix or tree.

@@ -21,13 +21,10 @@ from common import CONFIG_DIR, WorkflowError, effective_database_root, load_json
 from fetch_reference_genomes import fetch_genomes
 from generate_report import generate_report
 from inspect_input import inspect
-from interpret_snp_resolution import interpret as interpret_snp_resolution
 from parse_mashpit_results import interpret, load_candidates, locate_candidate_file, locate_tree_image
-from render_snp_tree import render_from_interpretation
 from rep_designations import annotate as annotate_rep_designations, summary_line as rep_summary_line
 from run_assembly_workflow import run_workflow
 from run_mashpit import run_mashpit
-from run_ska import run_ska
 from run_mummer import run_mummer
 from run_minimap import run_minimap
 from interpret_assembly_comparison import interpret as interpret_assembly_comparison
@@ -89,7 +86,7 @@ def summary_text(result: dict[str, Any]) -> str:
         lines.append("Screening-only result; no SNP-supported cluster assignment was attempted.")
     if snp and snp.get("ranked") and snp.get("nearest_snp_distance") is not None:
         lines.append(
-            f"{snp.get('backend', 'ska2').upper()} comparison: minimum observed distance {snp['nearest_snp_distance']:.2f} SNPs; "
+            f"{snp.get('backend', 'unknown').upper()} comparison: minimum observed distance {snp['nearest_snp_distance']:.2f} SNPs; "
             f"{len(snp.get('nearest_samples', []))} equally nearest reference(s). "
             "This is a comparison among qualifying references, not strain or outbreak confirmation."
         )
@@ -127,7 +124,7 @@ def summary_text(result: dict[str, Any]) -> str:
 def run_snp_resolution(
     mashpit_output_dir: Path, assembly: Path, best_cluster: str, output_dir: Path,
     database_metadata: dict[str, Any] | None = None, expand: bool = False,
-    query_reads: list[str] | None = None, selection_mode: str | None = None,
+    selection_mode: str | None = None,
     query_accession: str | None = None,
     refinement_policy_path: Path | None = None,
     snp_backend: str | None = None, assembly_manifest: Path | None = None,
@@ -142,11 +139,9 @@ def run_snp_resolution(
     refinement_policy = load_json(refinement_policy_path)
     expansion_policy = refinement_policy["expansion"]
     validate_expansion_policy(expansion_policy)
-    kmer_size = workflow["snp_resolution"]["kmer_size"]
-    backend = snp_backend or ("ska" if query_reads else workflow["snp_resolution"].get("assembly_backend","minimap2"))
-    if backend not in {"ska","mummer","minimap2"}: raise WorkflowError("Unknown SNP backend")
-    if backend != "ska" and query_reads:
-        raise WorkflowError("Assembly-comparison backends accept assemblies; paired-read refinement uses SKA")
+    backend = snp_backend or workflow["snp_resolution"].get("assembly_backend", "minimap2")
+    if backend not in {"mummer", "minimap2"}:
+        raise WorkflowError("Unknown SNP backend; choose minimap2 or mummer.")
     comparison_cache = comparison_cache or output_dir/"comparison_cache"
     comparison_runs = []
     commands: list[list[str]] = []
@@ -163,7 +158,7 @@ def run_snp_resolution(
     targets = {item["accession"]: item for item in targets_result["targets"]}
     initial_accessions = set(targets)
     batch = list(targets.values())
-    genomes: dict[str, Any] = {"QUERY": query_reads if query_reads else str(assembly)}
+    genomes: dict[str, Any] = {"QUERY": str(assembly)}
     attempted: set[str] = set()
     unavailable: set[str] = set()
     rounds = []
@@ -198,20 +193,12 @@ def run_snp_resolution(
             unavailable.update(fetch_result["unavailable"])
             if len(genomes) < 2:
                 interpretation = {"status": "INSUFFICIENT_DATA", "ranked": [], "warnings": ["No usable reference genomes could be downloaded."]}
-            elif backend != "ska":
+            else:
                 with measure_stage(stage_timings, "snp_comparison"):
                     comparison = (run_minimap if backend=="minimap2" else run_mummer)(genomes,round_dir/backend,comparison_cache,assembly_policy_path,comparison_workers)
                 commands.extend(comparison["commands"])
                 comparison_runs.append({key:comparison[key] for key in ("alignment_jobs","cache_hits","elapsed_seconds","status","tools","policy","policy_sha256","implementation_sha256","cache_directory")})
                 interpretation = interpret_assembly_comparison(comparison["comparisons"],list(targets.values()),best_cluster,comparison["policy"])
-            else:
-                with measure_stage(stage_timings, "snp_comparison"):
-                    ska_result = run_ska(genomes, round_dir / "ska", kmer_size)
-                commands.extend(ska_result["commands"])
-                interpretation = interpret_snp_resolution(
-                    ska_result["distances"], list(targets.values()), best_cluster,
-                    refinement_policy["comparability"],
-                )
         except (WorkflowError, OSError, ValueError) as error:
             stop_reason = "round_failed"
             if interpretation["status"] == "ERROR":
@@ -407,7 +394,7 @@ def run_snp_resolution(
         "global_nearest_established": False,
         "interpretation": "Expansion explores selected returned clusters. It cannot establish the absence of a closer cluster outside the retrieved pool.",
     }
-    interpretation["query_input"] = {"type": "paired_reads" if query_reads else "assembly", "paths": query_reads if query_reads else [str(assembly)]}
+    interpretation["query_input"] = {"type": "assembly", "paths": [str(assembly)]}
     interpretation["file_checksums"] = [
         {"sample": sample, "path": path, "sha256": sha256_file(Path(path))}
         for sample, value in genomes.items()
@@ -416,11 +403,9 @@ def run_snp_resolution(
     ]
     interpretation["backend"] = backend
     interpretation["comparison_runs"] = comparison_runs
-    interpretation["tree_image"] = ({"status":"SKIPPED","reason":"Target-to-candidate comparisons do not define a phylogenetic tree."}
-                                    if backend != "ska" else render_from_interpretation(interpretation, output_dir / "tree.png"))
-    if backend != "ska":
-        from plot_assembly_comparison import render
-        interpretation["ranking_image"] = render(interpretation,output_dir/"candidate_distances.png")
+    interpretation["tree_image"] = {"status": "SKIPPED", "reason": "Target-to-candidate comparisons do not define a phylogenetic tree."}
+    from plot_assembly_comparison import render
+    interpretation["ranking_image"] = render(interpretation, output_dir / "candidate_distances.png")
     write_json(output_dir / "expansion.json", expansion)
     write_json(output_dir / "interpretation.json", interpretation)
     return {"snp_resolution": interpretation, "commands": commands}
@@ -438,7 +423,6 @@ def screen(
     output_dir.mkdir(parents=True, exist_ok=False)
     commands: list[list[str]] = []
     assembly: Path | None = None
-    query_reads: list[str] | None = None
     snp_resolve = snp_resolve or snp_expand or snp_selection_mode is not None
     database_metadata = None
     result: dict[str, Any] = {
@@ -471,7 +455,6 @@ def screen(
                 if assembly_run["read_qc"]["status"] == "WARN" else []
             )
             assembly = Path(assembly_run["assembly_path"])
-            query_reads = assembly_run["read_paths"]
         basic_qc = assess(assembly)
         write_json(output_dir / "assembly_qc.initial.json", basic_qc)
         if basic_qc["status"] == "FAIL":
@@ -559,7 +542,7 @@ def screen(
                     snp_outcome = run_snp_resolution(
                         Path(mashpit_run["output_directory"]), assembly,
                         parsed["best_candidate"]["cluster"], output_dir / "snp_resolution",
-                        database_metadata, snp_expand, query_reads, snp_selection_mode, query_accession,
+                        database_metadata, snp_expand, snp_selection_mode, query_accession,
                         refinement_policy_path, snp_backend, assembly_manifest, comparison_cache, assembly_policy_path, comparison_workers,
                         stage_timings=result["stage_timings"],
                     )
@@ -619,7 +602,7 @@ def main() -> int:
     parser.add_argument("--snp-selection-mode", choices=("adaptive", "all_returned"), help="Representative selection mode; all_returned requires budget for every unique returned representative.")
     parser.add_argument("--query-accession", help="Known assembly accession of this query, excluded from SNP references.")
     parser.add_argument("--refinement-policy", help="Explicit versioned refinement policy JSON; defaults to config/refinement-policy.json.")
-    parser.add_argument("--snp-backend",choices=("minimap2","mummer","ska"),help="Assembly default: minimap2 target-to-candidate; reads default: legacy SKA.")
+    parser.add_argument("--snp-backend",choices=("minimap2","mummer"),help="SNP comparison of the supplied or generated assembly (default: minimap2).")
     parser.add_argument("--assembly-manifest",help="Local accession/path/sha256 TSV; download only missing accessions.")
     parser.add_argument("--comparison-cache",help="Reusable content-addressed assembly alignment cache.")
     parser.add_argument("--assembly-comparison-policy",help="Explicit assembly comparison policy JSON.")

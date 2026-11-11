@@ -11,18 +11,14 @@ from unittest.mock import patch
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
-from build_snp_tree import neighbor_joining
 from collect_provenance import collect
 from classify_with_mlst import interpret_mlst, parse_mlst_csv, route_for_organism
 from common import WorkflowError
 from fetch_reference_genomes import fetch_genomes
 from inspect_input import inspect
-from interpret_snp_resolution import interpret as interpret_snp_resolution
 from parse_mashpit_results import interpret, load_candidates
 from run_assembly_workflow import run_workflow
 from run_mashpit import run_mashpit, validate_database
-from render_snp_tree import render_from_interpretation
-from run_ska import run_ska
 from validate_assembly import assess
 from validate_fastq import validate_pair
 
@@ -273,95 +269,6 @@ class SnpResolutionTests(unittest.TestCase):
             self.assertIn("GOOD1", result["verified"])
             self.assertEqual(result["unavailable"], ["BAD1"])
             self.assertEqual(download_batch.call_count, 2)
-
-    @patch("run_ska.require_executable", return_value="/usr/bin/ska")
-    def test_run_ska_builds_file_list_and_parses_distances(self, _executable):
-        def fake_run_logged(command, cwd, stdout_path, stderr_path):
-            if command[1] == "build":
-                (cwd / "merged.skf").write_text("fake-skf", encoding="utf-8")
-            elif command[1] == "distance":
-                Path(command[3]).write_text(
-                    "Sample1\tSample2\tDistance\tMismatches (proportion)\tMatch count\tMismatch count\n"
-                    "QUERY\tGCA_1\t4.00\t0.02\t99000\t80\n",
-                    encoding="utf-8",
-                )
-            return 0
-
-        with tempfile.TemporaryDirectory() as temporary:
-            output_dir = Path(temporary)
-            with patch("run_ska.run_logged", side_effect=fake_run_logged) as logged:
-                result = run_ska({"QUERY": "query.fasta", "GCA_1": "gca1.fasta"}, output_dir, 31)
-            self.assertEqual(result["status"], "PASS")
-            self.assertEqual(result["distances"], [{
-                "sample1": "QUERY", "sample2": "GCA_1", "snp_distance": 4.0,
-                "mismatch_proportion": 0.02, "match_count": 99000, "mismatch_count": 80,
-            }])
-            build_command = logged.call_args_list[0].args[0]
-            self.assertEqual(build_command[:2], ["/usr/bin/ska", "build"])
-            self.assertIn("-k", build_command)
-            file_list = (output_dir / "ska_input.tsv").read_text(encoding="utf-8")
-            self.assertIn("QUERY\tquery.fasta", file_list)
-            self.assertIn("GCA_1\tgca1.fasta", file_list)
-
-    def test_interpret_snp_resolution_flags_disagreement_with_mash(self):
-        rows = [
-            {"sample1": "QUERY", "sample2": "GCA_1", "snp_distance": 5.0,
-             "mismatch_proportion": 0.01, "match_count": 1000000, "mismatch_count": 1},
-            {"sample1": "GCA_2", "sample2": "QUERY", "snp_distance": 2.0,
-             "mismatch_proportion": 0.01, "match_count": 1000000, "mismatch_count": 1},
-            {"sample1": "GCA_1", "sample2": "GCA_2", "snp_distance": 6.0,
-             "mismatch_proportion": 0.01, "match_count": 1000000, "mismatch_count": 1},
-        ]
-        targets = [
-            {"accession": "GCA_1", "cluster": "PDS0001"},
-            {"accession": "GCA_2", "cluster": "PDS0002"},
-        ]
-        result = interpret_snp_resolution(rows, targets, "PDS0001")
-        self.assertEqual(result["status"], "COMPARED")
-        self.assertEqual(result["nearest_sample"], "GCA_2")
-        self.assertEqual(result["nearest_cluster"], "PDS0002")
-        self.assertFalse(result["agrees_with_mash_top_candidate"])
-        self.assertEqual(result["confidence"]["nearest_cluster"], "PDS0002")
-        self.assertEqual(result["confidence"]["next_cluster"], "PDS0001")
-        self.assertAlmostEqual(result["confidence"]["separation_ratio"], 2.5)
-        self.assertTrue(result["newick_tree"].startswith("("))
-        # Tips are labeled with their cluster so a tree viewer shows more than an
-        # opaque accession; QUERY itself has no cluster, so it stays unlabeled.
-        self.assertIn("GCA_1_PDS0001", result["newick_tree"])
-        self.assertIn("GCA_2_PDS0002", result["newick_tree"])
-        self.assertIn("QUERY", result["newick_tree"])
-        self.assertNotIn("QUERY_", result["newick_tree"])
-        self.assertTrue(result["warnings"])
-
-    def test_interpret_snp_resolution_insufficient_data_without_query_rows(self):
-        rows = [{"sample1": "GCA_1", "sample2": "GCA_2", "snp_distance": 1.0,
-                  "mismatch_proportion": 0.0, "match_count": 1000000, "mismatch_count": 0}]
-        result = interpret_snp_resolution(rows, [], None)
-        self.assertEqual(result["status"], "INSUFFICIENT_DATA")
-
-    def test_neighbor_joining_recovers_exact_additive_tree(self):
-        # Distances summed along a known tree ((A:2,B:3):1,(C:4,D:5):1); NJ is
-        # guaranteed to recover an additive tree exactly, so this checks the
-        # implementation bit-for-bit rather than just "it runs".
-        rows = [
-            {"sample1": "A", "sample2": "B", "snp_distance": 5},
-            {"sample1": "A", "sample2": "C", "snp_distance": 8},
-            {"sample1": "A", "sample2": "D", "snp_distance": 9},
-            {"sample1": "B", "sample2": "C", "snp_distance": 9},
-            {"sample1": "B", "sample2": "D", "snp_distance": 10},
-            {"sample1": "C", "sample2": "D", "snp_distance": 9},
-        ]
-        newick = neighbor_joining(rows)
-        self.assertEqual(newick, "((A:2.0000,B:3.0000):1.0000,(C:4.0000,D:5.0000):1.0000);")
-
-    @patch("render_snp_tree.render")
-    def test_render_from_interpretation_reports_failure_without_raising(self, render):
-        render.side_effect = RuntimeError("matplotlib backend unavailable")
-        result = render_from_interpretation(
-            {"newick_tree": "(A:1,B:1);", "ranked": [{"sample": "A"}]}, Path("unused.png")
-        )
-        self.assertEqual(result["status"], "FAIL")
-        self.assertIn("matplotlib", result["error"])
 
 if __name__ == "__main__":
     unittest.main()

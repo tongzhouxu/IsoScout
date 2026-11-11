@@ -36,7 +36,7 @@ PYTHONPYCACHEPREFIX=/tmp/isoscout_pycache python3 -m unittest discover -s tests 
 ```
 
 The canonical release check builds the current image and runs the same suite plus
-the three offline tool integrations on seeded DNA with known differences, indels,
+the two offline tool integrations on seeded DNA with known differences, indels,
 and reverse complements:
 
 ```bash
@@ -51,7 +51,6 @@ docker run --rm --platform linux/amd64 \
 
 The suite keeps one representative case for each important boundary: input and
 database rejection, routing, fixed invocation, candidate/tie interpretation,
-selection budgets, focused expansion, cache behavior, and assembly/read distance
-parsing. It does not measure strain-assignment accuracy on real isolates. A
+selection budgets, focused expansion, cache behavior, and assembly distance parsing and paired-read routing through the generated assembly. It does not measure strain-assignment accuracy on real isolates. A
 cluster label match or stable result among examined references cannot establish
 recovery of the globally nearest genome.

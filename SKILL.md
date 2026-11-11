@@ -31,7 +31,7 @@ The default run performs Mashpit screening and SNP comparison. It can download p
 
 ## SNP comparison and candidate expansion
 
-SNP comparison runs by default and compares the target with selected returned representatives. Assembly input uses minimap2; the legacy paired-read path uses SKA2. `--snp-resolve` is a compatibility alias, not a required opt-in. Read [references/snp-resolution.md](references/snp-resolution.md) before interpreting it, preserve all ties and failures, and state whether the refined evidence agrees with the Mashpit candidate.
+SNP comparison runs by default and compares the target with selected returned representatives. Both input modes default to minimap2/paftools: supplied assemblies are compared directly, and paired reads use the QC-checked SKESA assembly. `--snp-resolve` is a compatibility alias, not a required opt-in. Read [references/snp-resolution.md](references/snp-resolution.md) before interpreting it, preserve all ties and failures, and state whether the refined evidence agrees with the Mashpit candidate.
 
 Use `--snp-expand` only when the user explicitly requests bounded exploration of additional members from the selected clusters. Read [references/cluster-expansion.md](references/cluster-expansion.md). Report examined and unexamined coverage, allocation and stop reasons, unavailable references, and all equally supported results. Sampled stability, cluster concordance, or zero observed SNPs does not establish the globally nearest genome or strain identity.
 

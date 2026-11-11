@@ -175,8 +175,7 @@ Native mode runs the bundled Python workflow using tools already installed on `P
 | Diagnostic plots | Matplotlib in the Python environment running IsoScout |
 | Automatic organism routing | `mlst` and its bundled schemes |
 | Paired-read processing, on a workstation/server | `fastp`, SKESA and QUAST |
-| Default assembly SNP comparison | Pinned minimap2, `paftools.js`, `k8`; NCBI `datasets` if references are not supplied locally |
-| Legacy paired-read refinement | SKA2 |
+| Default SNP comparison (supplied or generated assembly) | Pinned minimap2, `paftools.js`, `k8`; NCBI `datasets` if references are not supplied locally |
 
 Check the environment before running an analysis:
 
@@ -239,11 +238,12 @@ candidate assemblies using minimap2 and its upstream paftools variant caller.
 candidates are downloaded. `--comparison-cache` reuses completed pairs during
 expansion or a subsequent run. Reports retain SNPs, indels, coverage, ties and
 unresolved comparisons. No candidate-to-candidate matrix or tree is calculated
-for assemblies. MUMmer4 is available with `--snp-backend mummer`; paired reads
-retain legacy SKA2. See [assembly comparison](references/assembly-comparison.md)
+with the default assembly backend. MUMmer4 is available with `--snp-backend mummer`.
+Paired-read input uses the QC-checked SKESA assembly for SNP comparison,
+with the same minimap2/paftools default as supplied assemblies. See [assembly comparison](references/assembly-comparison.md)
 and [selection policy](references/snp-resolution.md).
 
-Add `--snp-selection-mode all_returned` to compare every valid unique returned representative when the recorded 200-attempt budget fits. Supply `--query-accession` if the query itself appears in the database. Add `--snp-expand` to enable SNP refinement plus bounded exploration of additional members from the exact NCBI cluster release. The revised default prioritizes SNP-leading clusters after broad representative screening, reserves rotating slots for alternatives, and requires focused qualifying coverage before a stability stop. `--refinement-policy PATH` accepts an explicit versioned policy file with recorded budgets. Each round records allocation and stopping rationale; stable sampling is not exhaustive search or proof of nearest-genome recovery. For paired-read inputs, SKA2 uses cleaned reads directly, although Mashpit still needs the generated assembly. See [cluster expansion](references/cluster-expansion.md) and [software verification](references/verification.md). The implementation and comparability defaults require biological validation before strain-assignment claims.
+Add `--snp-selection-mode all_returned` to compare every valid unique returned representative when the recorded 200-attempt budget fits. Supply `--query-accession` if the query itself appears in the database. Add `--snp-expand` to enable SNP refinement plus bounded exploration of additional members from the exact NCBI cluster release. The revised default prioritizes SNP-leading clusters after broad representative screening, reserves rotating slots for alternatives, and requires focused qualifying coverage before a stability stop. `--refinement-policy PATH` accepts an explicit versioned policy file with recorded budgets. Each round records allocation and stopping rationale; stable sampling is not exhaustive search or proof of nearest-genome recovery. Assembly inputs use minimap2/paftools by default throughout expansion. For paired-read inputs, Mashpit and SNP comparison both use the generated assembly. See [cluster expansion](references/cluster-expansion.md) and [software verification](references/verification.md). The implementation and comparability defaults require biological validation before strain-assignment claims.
 
 The legacy `databases-v1` packages do not include full cluster membership.
 All five [databases-v2](https://github.com/tongzhouxu/IsoScout/releases/tag/databases-v2) packages were built and verified with the

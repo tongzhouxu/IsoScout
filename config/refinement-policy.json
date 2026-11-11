@@ -1,9 +1,5 @@
 {
-  "policy_version": "2.0.0",
-  "comparability": {
-    "min_shared_split_kmers": 100000,
-    "max_mismatch_proportion": 0.1
-  },
+  "policy_version": "2.1.0",
   "expansion": {
     "batch_size": 25,
     "max_additional_reference_attempts": 100,

@@ -173,7 +173,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--snp-selection-mode", choices=("adaptive", "all_returned"))
     parser.add_argument("--query-accession")
     parser.add_argument("--refinement-policy")
-    parser.add_argument("--snp-backend", choices=("minimap2", "mummer", "ska"))
+    parser.add_argument("--snp-backend", choices=("minimap2", "mummer"))
     parser.add_argument("--assembly-manifest")
     parser.add_argument("--comparison-cache")
     parser.add_argument("--assembly-comparison-policy")

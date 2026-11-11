@@ -4,9 +4,11 @@ All notable changes to this project are documented here. Format loosely follows 
 
 ## [Unreleased]
 
+- Workflow 1.15.0 uses the QC-checked SKESA assembly for paired-read SNP comparison, with minimap2/paftools as the default for both input modes. Removed the obsolete direct-read backend, its dependency, split-kmer settings and SNP-tree code. MUMmer remains an explicit alternative. Refinement policy 2.1.0 retains the existing expansion budgets and removes unused split-kmer criteria.
+
 - CLI 1.5.0.dev2 records separate wall times for Mashpit, reference retrieval and SNP comparison, including failed attempts. The Pi pilot saves a stage summary alongside whole-command GNU time measurements.
 
-- Workflow 1.14.0 / CLI 1.5.0.dev1 makes SNP comparison the default for CLI, source and skill runs. `--screen-only` explicitly requests candidate screening; `--snp-resolve` remains a compatibility alias. Assembly comparisons default to minimap2. Full runs without completed required comparisons return `INCOMPLETE` and a nonzero exit status, preserving partial evidence. Reports no longer label unexecuted comparisons as SKA. Scientific thresholds and selection budgets are unchanged.
+- Workflow 1.14.0 / CLI 1.5.0.dev1 makes SNP comparison the default for CLI, source and skill runs. `--screen-only` explicitly requests candidate screening; `--snp-resolve` remains a compatibility alias. Assembly comparisons default to minimap2. Full runs without completed required comparisons return `INCOMPLETE` and a nonzero exit status, preserving partial evidence. Reports no longer assign a backend label to unexecuted comparisons. Scientific thresholds and selection budgets are unchanged.
 
 - Added the installable `isoscout screen` CLI (package `1.5.0.dev0`), using the existing Docker launcher by default and the same bundled workflow through explicit native execution. Wheels include the scientific policies without duplicating their source. CLI version and executor are retained in provenance; existing script entry points remain supported. The README keeps skill-assisted use first and adds command-line installation and native dependency guidance. Scientific workflow/policy versions and parameters are unchanged.
 
@@ -30,7 +32,7 @@ All notable changes to this project are documented here. Format loosely follows 
 
 - Consolidated repetitive defensive tests while retaining cases for each workflow decision boundary and the real pinned-tool integration checks.
 
-- Workflow 1.5.0 adds opt-in exact-release cluster-member expansion and bounded refinement feedback with per-round audits, explicit incomplete coverage, and preservation of successful comparisons after later failures. Cleaned paired reads now feed SKA2 directly. Comparability gates exclude low-overlap rankings; tied minima remain ambiguous and zero SNPs no longer imply identity. Added an offline real-SKA2 integration test using seeded random DNA. Biological validation remains required.
+- Workflow 1.5.0 adds opt-in exact-release cluster-member expansion and bounded refinement feedback with per-round audits, explicit incomplete coverage, and preservation of successful comparisons after later failures. This historical release introduced direct-read refinement, superseded by assembly-based refinement in workflow 1.15.0. Comparability gates exclude low-overlap rankings; tied minima remain ambiguous and zero SNPs no longer imply identity. Added an offline integration test for the then-current backend using seeded random DNA. Biological validation remains required.
 
 - Workflow 1.4.0 enables adaptive SNP selection (policy 2.0.0): initial target 50, boundary near-tie expansion, alternative-cluster coverage, and hard ceiling 200. Deduplicates repeated accessions, records every decision, and exposes resource/retrieval limits and download losses. Diagnostics and actual refinement use the same selector. Added 13 adaptive-selection tests, including preview/download agreement. These defaults are not biologically validated.
 
@@ -58,11 +60,11 @@ Initial release.
 
 ### Optional SNP resolution (`--snp-resolve`)
 
-- Selects representative genomes from Mashpit's top cluster plus any `near_top` clusters, capped at 100 representatives per cluster / 100 genomes total (round-robin across clusters) so a cluster with hundreds or thousands of representatives can't turn into an unbounded ska2 run.
-- Downloads representatives from NCBI via one batched `datasets download` call, retried on failure.
-- Runs `ska2` (`ska build` / `ska distance`) for exact pairwise SNP distances between the query and every downloaded representative, and between representatives themselves.
-- Reports a per-cluster distance summary, a raw-ratio confidence comparison between the nearest and next-nearest cluster (no invented strength label), and a Neighbor-Joining tree (pure-Python implementation, verified against a hand-computed additive case) with tips labeled by cluster.
-- Renders both the ska2 SNP tree and Mashpit's own Mash-similarity tree to PNG, query highlighted, embedded in the report.
+The initial release offered optional pairwise SNP refinement, reference downloads,
+per-cluster summaries and an exploratory distance tree. This historical method
+has been superseded: current SNP comparison runs automatically with
+minimap2/paftools on the supplied or generated assembly and reports
+target-to-candidate evidence without an SNP tree.
 
 ### Reporting
 

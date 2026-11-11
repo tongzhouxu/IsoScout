@@ -1,4 +1,4 @@
-# Preserve the published Mashpit/Python environment byte-for-byte.
+# Retain the published Mashpit/Python environment and remove the obsolete backend.
 FROM ghcr.io/tongzhouxu/isoscout@sha256:0ee316333279d2fbb28ba78605aa25ae86b0cdf9321cac15dd78f2c349ad9cf9
 
 ARG VCS_REF=unknown
@@ -8,6 +8,10 @@ ENV ISOSCOUT_SOURCE_COMMIT="$VCS_REF"
 
 COPY --chown=$MAMBA_USER:$MAMBA_USER container/alignment-linux-64.lock /tmp/alignment-linux-64.lock
 RUN micromamba create -y -p /opt/conda/envs/assembly-tools -f /tmp/alignment-linux-64.lock && micromamba clean --all --yes
+
+# Keep the other pinned packages; clear inherited source so deleted modules do not survive COPY.
+RUN micromamba remove -y -n base --offline --no-prune-deps ska2 && \
+    find /opt/isoscout -mindepth 1 -delete
 
 COPY --chown=$MAMBA_USER:$MAMBA_USER . /opt/isoscout
 ENV PATH="/opt/conda/envs/assembly-tools/bin:/opt/isoscout/scripts:${PATH}"

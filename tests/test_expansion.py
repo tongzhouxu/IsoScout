@@ -17,15 +17,10 @@ from expand_cluster_members import parse_members, discover_members
 from generate_report import generate_report
 from package_database_release import package_database
 from run_mashpit import validate_database
-from interpret_snp_resolution import interpret
 from refinement_expansion import assess_progress, schedule_focused_batch
-from run_ska import build_file_list, parse_distance_table, DISTANCE_HEADER
 from screen_isolate import run_snp_resolution, screen
 from site_fixture import MashpitFixture
-
-
-def comparison(a, b, distance, matches=1000000, missing=.01):
-    return {"sample1": a, "sample2": b, "snp_distance": distance, "match_count": matches, "mismatch_count": 100, "mismatch_proportion": missing}
+from comparison_fixture import comparison_result
 
 
 class MembershipTests(unittest.TestCase):
@@ -122,24 +117,6 @@ class MembershipTests(unittest.TestCase):
             package_database(source, output, {"max_metadata_file_bytes": 100000}, self.meta, self.isolates)
         self.assertFalse(output.exists())
 
-class InterpretationTests(unittest.TestCase):
-    def test_tiny_overlap_cannot_win_with_zero_snps(self):
-        rows = [comparison("QUERY", "A", 0, 1, .999), comparison("QUERY", "B", 2), comparison("A", "B", 2, 1, .999)]
-        result = interpret(rows, [{"accession": "A", "cluster": "C1"}, {"accession": "B", "cluster": "C2"}], "C1")
-        self.assertEqual(result["nearest_sample"], "B")
-        self.assertEqual(len(result["excluded_comparisons"]), 1)
-        self.assertIn("insufficient_shared_split_kmers", result["excluded_comparisons"][0]["reasons"])
-
-    def test_zero_ties_across_clusters_are_ambiguous(self):
-        rows = [comparison("QUERY", "A", 0), comparison("QUERY", "B", 0), comparison("A", "B", 0)]
-        result = interpret(rows, [{"accession": "A", "cluster": "C1"}, {"accession": "B", "cluster": "C2"}], "C1")
-        self.assertEqual(result["status"], "AMBIGUOUS")
-        self.assertEqual(result["nearest_samples"], ["A", "B"])
-        self.assertIsNone(result["nearest_cluster"])
-        self.assertIsNone(result["agrees_with_mash_top_candidate"])
-        self.assertIn("no unique cluster", result["confidence"]["statement"])
-        self.assertNotIn("exact match", result["confidence"]["statement"])
-
 class FocusedSchedulerTests(unittest.TestCase):
     def setUp(self):
         self.policy = load_json(ROOT / "config" / "refinement-policy.json")["expansion"]
@@ -221,15 +198,16 @@ class IterativeWorkflowTests(unittest.TestCase):
         self.membership = {"status": "AVAILABLE", "release": "fixture", "sources": [],
                            "members": [{"accession": f"MEMBER_{i:03d}", "cluster": "C1"} for i in range(100)]}
 
-    def execute(self, membership=None, settings=None, distance_map=None, bad=None, query_accession=None, ska_fail_round=None, comparability=None):
+    def execute(self, membership=None, settings=None, distance_map=None, bad=None, query_accession=None, comparison_fail_round=None):
         membership = membership or self.membership
         distance_map = distance_map or {}
         bad = bad or set()
         def fetch(accessions, *_):
             return {"commands": [], "verified": {acc: "/tmp/" + acc + ".fa" for acc in accessions}, "unavailable": []}
         def interpret_targets(_distances, targets, _best, _policy):
-            self.assertEqual(_policy, refinement["comparability"])
+            self.assertEqual(_policy, comparison_policy)
             ranked = [{"sample": row["accession"], "cluster": row["cluster"],
+                       "target_aligned_fraction": 1.0, "candidate_aligned_fraction": 1.0,
                        "snp_distance": distance_map.get(row["accession"], 5)}
                       for row in targets if row["accession"] not in bad]
             ranked.sort(key=lambda row: (row["snp_distance"], row["sample"]))
@@ -239,22 +217,22 @@ class IterativeWorkflowTests(unittest.TestCase):
                     "nearest_snp_distance": minimum, "nearest_samples": [row["sample"] for row in nearest],
                     "nearest_clusters": sorted({row["cluster"] for row in nearest}),
                     "excluded_comparisons": [{"sample": row["accession"], "cluster": row["cluster"],
-                                               "reasons": ["insufficient_shared_split_kmers"]} for row in targets if row["accession"] in bad],
+                                               "reasons": ["low_target_aligned_fraction"]} for row in targets if row["accession"] in bad],
                     "warnings": []}
         refinement = load_json(ROOT / "config" / "refinement-policy.json")
         refinement["expansion"].update(settings or {})
-        refinement["comparability"].update(comparability or {})
+        comparison_policy = load_json(ROOT / "config" / "assembly-comparison-policy.json")
         real_load = load_json
         def config(path):
             return refinement if path.name == "refinement-policy.json" else real_load(path)
-        ska_calls = [0]
-        def ska(*_):
-            ska_calls[0] += 1
-            if ska_fail_round is not None and ska_calls[0] == ska_fail_round:
+        comparison_calls = [0]
+        def compare(*_):
+            comparison_calls[0] += 1
+            if comparison_fail_round is not None and comparison_calls[0] == comparison_fail_round:
                 raise WorkflowError("round tool failure")
-            return {"commands": [], "distances": []}
-        with patch("screen_isolate.load_json", side_effect=config), patch("screen_isolate.fetch_genomes", side_effect=fetch) as download, patch("screen_isolate.run_ska", side_effect=ska), patch("screen_isolate.interpret_snp_resolution", side_effect=interpret_targets), patch("screen_isolate.discover_members", return_value=membership), patch("screen_isolate.render_from_interpretation", return_value={"status": "SKIPPED"}):
-            result = run_snp_resolution(self.case.source, self.case.root / "query.fa", "C1", self.case.root / "snp", self.case.database, snp_backend="ska",
+            return comparison_result(policy=comparison_policy)
+        with patch("screen_isolate.load_json", side_effect=config), patch("screen_isolate.fetch_genomes", side_effect=fetch) as download, patch("screen_isolate.run_minimap", side_effect=compare), patch("screen_isolate.interpret_assembly_comparison", side_effect=interpret_targets), patch("screen_isolate.discover_members", return_value=membership), patch("plot_assembly_comparison.render", return_value={"status": "SKIPPED"}):
+            result = run_snp_resolution(self.case.source, self.case.root / "query.fa", "C1", self.case.root / "snp", self.case.database, snp_backend="minimap2",
                                         expand=True, query_accession=query_accession)
         return result["snp_resolution"], [call.args[0] for call in download.call_args_list]
 
@@ -279,7 +257,7 @@ class IterativeWorkflowTests(unittest.TestCase):
         self.assertIn("SNP comparison coverage by returned cluster", report)
         self.assertIn("| Cluster | Attempted | Downloaded | Qualifying | Excluded |", report)
         self.assertIn("Expansion decisions after each comparison", report)
-        self.assertIn("All equally nearest qualifying references: LEAD_030", report)
+        self.assertIn("Supported reference set: LEAD_030", report)
 
     def test_alternative_exploration_corrects_misleading_initial_leader(self):
         self.case.fixture([1., .995], ["C1", "C2"])
@@ -303,7 +281,7 @@ class IterativeWorkflowTests(unittest.TestCase):
         result, downloads = self.execute(settings={"max_total_genomes": 4})
         self.assertEqual([len(batch) for batch in downloads], [1, 3])
         self.assertEqual(result["expansion"]["stop_reason"], "hard_resource_ceiling")
-        failed, failed_downloads = self.execute(ska_fail_round=2)
+        failed, failed_downloads = self.execute(comparison_fail_round=2)
         self.assertEqual(failed["expansion"]["stop_reason"], "round_failed")
         self.assertEqual(len(failed_downloads), 2)
         self.assertEqual(failed["nearest_snp_distance"], 5)
@@ -320,7 +298,7 @@ class IterativeWorkflowTests(unittest.TestCase):
         result2, _ = self.execute(membership=conflict, query_accession="GCA_0000")
         self.assertEqual(result2["expansion"]["stop_reason"], "membership_conflict")
 
-    def test_read_screen_passes_cleaned_reads_to_refinement(self):
+    def test_read_screen_passes_generated_assembly_to_refinement(self):
         root = self.case.root
         r1, r2 = root / "sample_R1.fastq", root / "sample_R2.fastq"
         for path in (r1, r2):
@@ -332,27 +310,8 @@ class IterativeWorkflowTests(unittest.TestCase):
         fake_run = {"command": ["mashpit"], "database": self.case.database, "output_directory": str(self.case.source)}
         with patch("screen_isolate.run_workflow", return_value=built), patch("screen_isolate.assess", return_value={"status": "PASS", "metrics": {"total_length": 4}}), patch("screen_isolate.run_mashpit", return_value=fake_run), patch("screen_isolate.run_snp_resolution", return_value={"snp_resolution": {"status": "SKIPPED"}, "commands": []}) as refine, patch("screen_isolate.collect", return_value={}), patch("analyze_similarity_distribution.render_plot", return_value={"status": "SKIPPED"}):
             screen([r1, r2], root / "screen", root, organism="listeria", snp_resolve=True)
-        self.assertEqual(refine.call_args.args[6], clean_reads)
-
-
-class ReadAndDistanceContractTests(unittest.TestCase):
-    def test_paired_read_manifest(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "input.tsv"
-            build_file_list({"QUERY": ["r1.fastq.gz", "r2.fastq.gz"], "REF": "ref.fa"}, path)
-            self.assertIn("QUERY\tr1.fastq.gz\tr2.fastq.gz", path.read_text())
-            with self.assertRaises(WorkflowError):
-                build_file_list({"QUERY": "reads.fastq"}, path)
-            with self.assertRaises(WorkflowError):
-                build_file_list({"QUERY": ["reads.fastq"]}, path)
-
-    def test_malformed_and_nonfinite_distances_rejected(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "dist.tsv"
-            for row in ("A\tB\t0", "A\tB\tnan\t0\t100\t0", "A\tB\t0\t2\t100\t0"):
-                path.write_text("\t".join(DISTANCE_HEADER) + "\n" + row + "\n")
-                with self.assertRaises(WorkflowError):
-                    parse_distance_table(path)
+        self.assertEqual(refine.call_args.args[1], assembly)
+        self.assertNotIn(clean_reads, refine.call_args.args)
 
 
 if __name__ == "__main__":

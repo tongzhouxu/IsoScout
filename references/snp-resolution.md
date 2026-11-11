@@ -1,6 +1,6 @@
 # SNP resolution: selection policy 3.0.1
 
-Default SNP comparison using target-to-candidate assembly alignments (minimap2 by default), or legacy SKA2 for paired reads. See [assembly-comparison.md](assembly-comparison.md) for the assembly method, local inputs, caching and criteria. Governed by `config/snp-resolution-policy.json` (versioned resource policy) and the `snp_resolution` block of `config/workflow.json` (fixed ska2 command profile). Runs automatically; use `--screen-only` explicitly to omit SNP comparison.
+Default SNP comparison uses target-to-candidate assembly alignments (minimap2/paftools by default). Paired-read input uses the QC-checked SKESA assembly; supplied assemblies enter the same comparison stage. See [assembly-comparison.md](assembly-comparison.md) for the assembly method, local inputs, caching and criteria. Governed by `config/snp-resolution-policy.json` (versioned resource policy) and the `snp_resolution` block of `config/workflow.json` (default assembly backend). Runs automatically; use `--screen-only` explicitly to omit SNP comparison.
 
 ## Why this exists
 
@@ -54,8 +54,7 @@ The default full analysis uses adaptive selection. `--snp-expand` additionally
 explores exact-release members of clusters represented in the selected returned
 set. The expansion profile is versioned separately from representative selection;
 `--refinement-policy` can select another explicit, versioned policy file without
-changing Mashpit retrieval or the initial candidate set. Its expansion settings are recorded; its split-kmer comparability criteria apply
-only to SKA. Assembly comparability comes from the separately recorded assembly policy. No score-distribution
+changing Mashpit retrieval or the initial candidate set. Its expansion settings are recorded. Assembly comparability comes from the separately recorded assembly policy. No score-distribution
 heuristic changes eligibility or budgets; exploratory plots and near-tie flags
 must not be interpreted as evidence that omitted clusters lack closer SNP
 neighbors.
@@ -81,25 +80,17 @@ with the pinned NCBI datasets CLI. Assemblies default to minimap2/paftools
 comparisons against the target alone, with new expansion candidates processed
 incrementally. See [assembly-comparison.md](assembly-comparison.md).
 
-Paired reads retain SKA2 refinement, and `--snp-backend ska` explicitly selects
-that legacy method for assemblies. Only the legacy SKA path calculates a full
-matrix and can render an exploratory tree. There is no automatic backend fallback.
+Paired-read runs compare the generated assembly using the same backend and
+criteria. `--snp-backend mummer` selects the alternative assembly backend for
+either input mode. There is no automatic backend fallback.
 
 ## Interpretation
 
 Assembly results report qualifying target–candidate comparisons, all ties,
 alignment coverage, per-pair failures, cache use, common-finalist counts, outside-reference lower bounds, regional contradictions and unresolved alternatives. Read [assembly-comparison.md](assembly-comparison.md) for the common-region comparisons and insufficient-evidence rules.
-No assembly tree is generated. The following tree details apply only to legacy SKA.
-
-
-`interpret_snp_resolution.py` reports qualifying query-to-reference comparisons,
-excluded low-overlap comparisons, all tied nearest references, per-cluster
-summaries, and an exploratory Neighbor-Joining tree when a complete comparable
-matrix is available. Status is `COMPARED`, `AMBIGUOUS`, or `INSUFFICIENT_DATA`;
-none establishes strain identity. The structural `confidence` block contains
-raw distances and ratios, not statistical confidence. Zero observed differences
-are not described as an exact whole-genome match. See
-[cluster-expansion.md](cluster-expansion.md) for comparability settings and ties.
+Target-to-candidate comparisons do not generate a phylogenetic tree. Results
+retain unresolved alternatives and excluded comparisons; zero observed SNPs
+does not establish whole-genome identity.
 
 The final `coverage` block lists every returned representative left unexamined,
 every attempted, verified, and unavailable download, every qualifying and
@@ -111,12 +102,15 @@ individual nearest genome among those examined.
 The report separates Mashpit-displayed alternatives from alternatives actually
 tested by the selected backend. No stable within-cluster result rules out an untested cluster.
 
-`render_snp_tree.py` renders `newick_tree` to `snp_resolution/tree.png` with `QUERY` highlighted in red and bold (via `phytreeviz`, already pulled in transitively by the pinned mashpit commit's own dependencies — no new container pin needed). Rendering is best-effort: a failure only sets `tree_image.status` to `FAIL` with the error message, it never fails SNP resolution or the underlying Mash screen. `generate_report.py` embeds this image in `report.md` when available, falling back to the raw Newick text otherwise.
-
-`generate_report.py` renders all of this into `report.md`, written alongside `result.json` on every run (including `--screen-only` runs): organism determination, the Mashpit candidate table, the selected backend's cluster/genome results and confidence statement, and the Newick tree, in plain language for a reader who doesn't want to open JSON.
+`generate_report.py` renders the results into `report.md`, written alongside
+`result.json` on every run (including `--screen-only` runs): organism determination,
+the Mashpit candidate table, the selected backend's cluster/genome results,
+alignment coverage, comparison plots and uncertainty. The SNP `query_input` and
+file checksums identify the actual assembly compared; the top-level `input_type`
+retains whether the original input was an assembly or paired reads.
 
 ## Limitations
 
-- ska2 pairwise SNP distance is itself a screening refinement, not a validated outbreak-confirmation pipeline (unlike, e.g., CFSAN SNP Pipeline or an accredited cgMLST scheme). Always recommend a validated, organism-appropriate high-resolution comparison for actual outbreak confirmation, exactly as for the Mash result.
+- SNP comparison with minimap2/paftools or MUMmer4 is a screening refinement, not a validated outbreak-confirmation pipeline (unlike, e.g., CFSAN SNP Pipeline or an accredited cgMLST scheme). Always recommend a validated, organism-appropriate high-resolution comparison for actual outbreak confirmation, exactly as for the Mash result.
 - The default full analysis compares selected representatives. `--snp-expand` can add available members of selected clusters from the exact release, subject to explicit budgets and stopping rules. Neither mode searches all public genomes or guarantees the nearest isolate globally.
-- A failed or partial download (fewer than two usable genomes, including the query) skips SNP resolution with a warning; it does not fail the underlying Mash screen, which remains authoritative on its own.
+- Missing required comparisons make a full run `INCOMPLETE` with a nonzero exit status. Completed comparisons and the Mashpit screen remain available as partial evidence.
